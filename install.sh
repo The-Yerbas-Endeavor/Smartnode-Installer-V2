@@ -281,23 +281,66 @@ next_available_port() {
 
 prepare_bootstrap_cache() {
     (( USE_BOOTSTRAP == 1 )) || return
-    [[ -n "$BOOTSTRAP_URL" ]] || die "Latest bootstrap release has no bootstrap ZIP."
-    local zip="$CACHE_DIR/${BOOTSTRAP_URL##*/}" part="$CACHE_DIR/${BOOTSTRAP_URL##*/}.part" extract="$CACHE_DIR/bootstrap-current"
+    [[ -n "$BOOTSTRAP_URL" ]] || die "Latest bootstrap release has no bootstrap.zip asset."
+
+    local zip="$CACHE_DIR/bootstrap.zip"
+    local part="$CACHE_DIR/bootstrap.zip.part"
+    local extract="$CACHE_DIR/bootstrap-current"
+    local available_bytes required_bytes actual_bytes
+    local safety_bytes=$((1024 * 1024 * 1024))
+
+    available_bytes="$(df -PB1 "$CACHE_DIR" | awk 'NR == 2 {print $4}')"
+    [[ "$available_bytes" =~ ^[0-9]+$ ]] ||
+        die "Unable to determine available disk space for bootstrap download."
+
+    if (( BOOTSTRAP_SIZE > 0 )); then
+        # Space for the ZIP, extracted data, and 1 GiB of working headroom.
+        required_bytes=$((BOOTSTRAP_SIZE * 2 + safety_bytes))
+
+        info "Bootstrap archive size: $(numfmt --to=iec-i --suffix=B "$BOOTSTRAP_SIZE")."
+        info "Available bootstrap storage: $(numfmt --to=iec-i --suffix=B "$available_bytes")."
+
+        if (( available_bytes < required_bytes )); then
+            die "Insufficient disk space for bootstrap download. Required approximately $(numfmt --to=iec-i --suffix=B "$required_bytes"); available $(numfmt --to=iec-i --suffix=B "$available_bytes")."
+        fi
+    fi
 
     info "Refreshing bootstrap cache for all users..."
-    rm -f "$CACHE_DIR"/bootstrap*.zip "$CACHE_DIR"/bootstrap*.zip.part "$part"
+    rm -f "$CACHE_DIR"/bootstrap*.zip "$CACHE_DIR"/bootstrap*.zip.part
     rm -rf "$extract"
 
-    curl -fL --retry 3 "$BOOTSTRAP_URL" -o "$part"
-    unzip -tq "$part" >/dev/null || {
+    if ! curl -fL --retry 3 --retry-delay 2 "$BOOTSTRAP_URL" -o "$part"; then
+        available_bytes="$(df -PB1 "$CACHE_DIR" | awk 'NR == 2 {print $4}')"
         rm -f "$part"
-        die "Bootstrap ZIP validation failed."
-    }
+
+        if (( BOOTSTRAP_SIZE > 0 && available_bytes < BOOTSTRAP_SIZE )); then
+            die "Insufficient disk space for bootstrap download."
+        fi
+
+        die "Bootstrap download failed."
+    fi
+
+    actual_bytes="$(stat -c '%s' "$part")"
+
+    if (( BOOTSTRAP_SIZE > 0 && actual_bytes != BOOTSTRAP_SIZE )); then
+        rm -f "$part"
+        die "Bootstrap download incomplete. Expected $(numfmt --to=iec-i --suffix=B "$BOOTSTRAP_SIZE"), but received $(numfmt --to=iec-i --suffix=B "$actual_bytes")."
+    fi
+
+    if ! unzip -tq "$part" >/dev/null; then
+        rm -f "$part"
+        die "Downloaded bootstrap.zip failed ZIP validation."
+    fi
+
     mv -f "$part" "$zip"
 
     mkdir -p "$extract"
     unzip -q "$zip" -d "$extract"
-    if [[ -d "$extract/bootstrap" ]]; then mv "$extract/bootstrap"/* "$extract"/ 2>/dev/null || true; rmdir "$extract/bootstrap" 2>/dev/null || true; fi
+
+    if [[ -d "$extract/bootstrap" ]]; then
+        mv "$extract/bootstrap"/* "$extract"/ 2>/dev/null || true
+        rmdir "$extract/bootstrap" 2>/dev/null || true
+    fi
 }
 
 is_public_ipv4() {
