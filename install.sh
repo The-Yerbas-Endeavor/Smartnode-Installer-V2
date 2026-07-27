@@ -26,7 +26,7 @@ DEFAULT_RPC_PORT=9494
 
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; RESET='\033[0m'
 YG="$GREEN"; CN="$RESET"
-ARCH=""; UBUNTU_VERSION=""; RELEASE_TAG=""; WALLET_URL=""; BOOTSTRAP_URL=""; POWCACHE_URL=""
+ARCH=""; UBUNTU_VERSION=""; RELEASE_TAG=""; WALLET_URL=""; BOOTSTRAP_URL=""; BOOTSTRAP_SIZE=0; POWCACHE_URL=""
 USE_BOOTSTRAP=0; USE_POWCACHE=0
 CREATED_USERS=()
 CONFIGURED_USERS=()
@@ -183,6 +183,13 @@ resolve_release() {
 
     bootstrap_json="$(github_latest_json "$BOOTSTRAP_REPO")" || die "Unable to query latest bootstrap release."
     BOOTSTRAP_URL="$(asset_url "$bootstrap_json" '^bootstrap\.zip$')" || true
+    BOOTSTRAP_SIZE="$(
+    jq -er '
+        .assets[]
+        | select(.name | ascii_downcase == "bootstrap.zip")
+        | .size
+    ' <<<"$bootstrap_json" | head -n1
+)" || BOOTSTRAP_SIZE=0
     POWCACHE_URL="$(asset_url "$bootstrap_json" 'powcache\.dat$')" || true
 }
 
