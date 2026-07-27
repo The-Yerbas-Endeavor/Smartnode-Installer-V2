@@ -1,0 +1,11 @@
+# Planned noninteractive configuration format for a future v2.x release.
+# Do not store Linux passwords, RPC passwords, or BLS private keys in Git.
+
+SWAP_GB=4
+USE_BOOTSTRAP=yes
+USE_POWCACHE=yes
+
+# NODE_USERS=("yerbnode1" "yerbnode2")
+# NODE_P2P_PORTS=("15420" "15421")
+# NODE_RPC_PORTS=("9494" "9495")
+# NODE_EXTERNAL_IPS=("203.0.113.10" "203.0.113.10")
