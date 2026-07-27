@@ -182,7 +182,7 @@ resolve_release() {
     info "Selected wallet archive: ${WALLET_URL##*/}"
 
     bootstrap_json="$(github_latest_json "$BOOTSTRAP_REPO")" || die "Unable to query latest bootstrap release."
-    BOOTSTRAP_URL="$(asset_url "$bootstrap_json" '^bootstrap(-index)?\.zip$')" || true
+    BOOTSTRAP_URL="$(asset_url "$bootstrap_json" '^bootstrap\.zip$')" || true
     POWCACHE_URL="$(asset_url "$bootstrap_json" 'powcache\.dat$')" || true
 }
 
