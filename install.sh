@@ -153,22 +153,37 @@ asset_url() {
 }
 
 resolve_release() {
-    local release_json bootstrap_json wallet_regex
+    local release_json bootstrap_json wallet_regex available_assets
     info "Resolving latest Yerbas release..."
     release_json="$(github_latest_json "$YERB_REPO")" || die "Unable to query latest Yerbas release."
-    RELEASE_TAG="$(jq -er '.tag_name' <<<"$release_json")"
+    RELEASE_TAG="$(jq -er '.tag_name' <<<"$release_json")" || die "Latest Yerbas release does not contain a valid tag."
+
     case "$ARCH:$UBUNTU_VERSION" in
-        x86_64:22.04) wallet_regex='ubuntu-22\.04-x86-release\.(tar\.gz|tgz)$' ;;
-        x86_64:24.04) wallet_regex='ubuntu-24\.04-x86-release\.(tar\.gz|tgz)$' ;;
-        x86_64:26.04) wallet_regex='ubuntu-26\.04-x86-release\.(tar\.gz|tgz)$' ;;
-        aarch64:*) wallet_regex='ubuntu-.*arm64-release\.(tar\.gz|tgz)$' ;;
+        x86_64:22.04) wallet_regex='^yerbas-ubuntu-22\.04-x86-release-[0-9]+(\.[0-9]+)*\.(tar\.gz|tgz)$' ;;
+        x86_64:24.04) wallet_regex='^yerbas-ubuntu-24\.04-x86-release-[0-9]+(\.[0-9]+)*\.(tar\.gz|tgz)$' ;;
+        x86_64:26.04) wallet_regex='^yerbas-ubuntu-26\.04-x86-release-[0-9]+(\.[0-9]+)*\.(tar\.gz|tgz)$' ;;
+        aarch64:22.04) wallet_regex='^yerbas-ubuntu-22\.04-arm64-release-[0-9]+(\.[0-9]+)*\.(tar\.gz|tgz)$' ;;
+        aarch64:24.04) wallet_regex='^yerbas-ubuntu-24\.04-arm64-release-[0-9]+(\.[0-9]+)*\.(tar\.gz|tgz)$' ;;
+        aarch64:26.04) wallet_regex='^yerbas-ubuntu-26\.04-arm64-release-[0-9]+(\.[0-9]+)*\.(tar\.gz|tgz)$' ;;
+        *) die "No release matcher for Ubuntu $UBUNTU_VERSION on $ARCH." ;;
     esac
-    WALLET_URL="$(asset_url "$release_json" "$wallet_regex")" || die "No compatible wallet archive found in release $RELEASE_TAG."
+
+    WALLET_URL="$(asset_url "$release_json" "$wallet_regex" || true)"
+    if [[ -z "$WALLET_URL" ]]; then
+        available_assets="$(jq -r '.assets[].name' <<<"$release_json")"
+        {
+            echo "Available assets in release $RELEASE_TAG:"
+            sed 's/^/  - /' <<<"$available_assets"
+        } | tee -a "$LOG_FILE" >&2
+        die "No compatible Yerbas wallet archive for Ubuntu $UBUNTU_VERSION on $ARCH."
+    fi
+
+    info "Latest wallet release: $RELEASE_TAG"
+    info "Selected wallet archive: ${WALLET_URL##*/}"
 
     bootstrap_json="$(github_latest_json "$BOOTSTRAP_REPO")" || die "Unable to query latest bootstrap release."
     BOOTSTRAP_URL="$(asset_url "$bootstrap_json" '^bootstrap(-index)?\.zip$')" || true
     POWCACHE_URL="$(asset_url "$bootstrap_json" 'powcache\.dat$')" || true
-    info "Latest wallet release: $RELEASE_TAG"
 }
 
 service_users() {
