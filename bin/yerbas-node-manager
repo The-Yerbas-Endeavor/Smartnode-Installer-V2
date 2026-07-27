@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+USERS_FILE="/var/lib/yerbas-installer/users"
+CLI="/usr/local/bin/yerbas-cli"
+CONF_DIR_NAME=".yerbascore"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  yerbas-node-manager status
+  yerbas-node-manager start USER
+  yerbas-node-manager stop USER
+  yerbas-node-manager restart USER
+  yerbas-node-manager logs USER
+  yerbas-node-manager cli USER [RPC COMMAND...]
+  yerbas-node-manager info USER
+USAGE
+}
+
+users() {
+    [[ -f "$USERS_FILE" ]] && sort -u "$USERS_FILE"
+}
+
+require_user() {
+    [[ -n "${1:-}" ]] || { usage; exit 1; }
+    id "$1" &>/dev/null || { echo "Unknown Linux user: $1" >&2; exit 1; }
+}
+
+node_home() {
+    getent passwd "$1" | cut -d: -f6
+}
+
+cmd="${1:-}"
+user="${2:-}"
+
+case "$cmd" in
+    status)
+        while read -r u; do
+            [[ -n "$u" ]] || continue
+            printf '%-20s service=%-10s enabled=%s\n' \
+                "$u" \
+                "$(systemctl is-active "yerbasd@$u" 2>/dev/null || true)" \
+                "$(systemctl is-enabled "yerbasd@$u" 2>/dev/null || true)"
+        done < <(users)
+        ;;
+    start|stop|restart)
+        require_user "$user"
+        systemctl "$cmd" "yerbasd@$user"
+        ;;
+    logs)
+        require_user "$user"
+        journalctl -u "yerbasd@$user" -f
+        ;;
+    cli)
+        require_user "$user"
+        shift 2
+        home="$(node_home "$user")"
+        sudo -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" "$@"
+        ;;
+    info)
+        require_user "$user"
+        home="$(node_home "$user")"
+        conf="$home/$CONF_DIR_NAME/yerbas.conf"
+        echo "User: $user"
+        echo "Home: $home"
+        echo "Service: $(systemctl is-active "yerbasd@$user" 2>/dev/null || true)"
+        if [[ -f "$conf" ]]; then
+            sed -n -E 's/^(port|rpcport|externalip)=/\1: /p' "$conf"
+        fi
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac
