@@ -1,0 +1,99 @@
+name: Apply dynamic latest release matcher
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-latest-release-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: true
+
+      - name: Update release archive matching
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('install.sh')
+          text = path.read_text()
+          old = '''resolve_release() {
+              local release_json bootstrap_json wallet_regex
+              info "Resolving latest Yerbas release..."
+              release_json="$(github_latest_json "$YERB_REPO")" || die "Unable to query latest Yerbas release."
+              RELEASE_TAG="$(jq -er '.tag_name' <<<"$release_json")"
+              case "$ARCH:$UBUNTU_VERSION" in
+                  x86_64:22.04) wallet_regex='ubuntu-22\\.04-x86-release\\.(tar\\.gz|tgz)$' ;;
+                  x86_64:24.04) wallet_regex='ubuntu-24\\.04-x86-release\\.(tar\\.gz|tgz)$' ;;
+                  x86_64:26.04) wallet_regex='ubuntu-26\\.04-x86-release\\.(tar\\.gz|tgz)$' ;;
+                  aarch64:*) wallet_regex='ubuntu-.*arm64-release\\.(tar\\.gz|tgz)$' ;;
+              esac
+              WALLET_URL="$(asset_url "$release_json" "$wallet_regex")" || die "No compatible wallet archive found in release $RELEASE_TAG."
+
+              bootstrap_json="$(github_latest_json "$BOOTSTRAP_REPO")" || die "Unable to query latest bootstrap release."
+              BOOTSTRAP_URL="$(asset_url "$bootstrap_json" '^bootstrap(-index)?\\.zip$')" || true
+              POWCACHE_URL="$(asset_url "$bootstrap_json" 'powcache\\.dat$')" || true
+              info "Latest wallet release: $RELEASE_TAG"
+          }
+          '''
+          new = '''resolve_release() {
+              local release_json bootstrap_json wallet_regex available_assets
+              info "Resolving latest Yerbas release..."
+              release_json="$(github_latest_json "$YERB_REPO")" || die "Unable to query latest Yerbas release."
+              RELEASE_TAG="$(jq -er '.tag_name' <<<"$release_json")" || die "Latest Yerbas release does not contain a valid tag."
+
+              case "$ARCH:$UBUNTU_VERSION" in
+                  x86_64:22.04) wallet_regex='^yerbas-ubuntu-22\\.04-x86-release-[0-9]+(\\.[0-9]+)*\\.(tar\\.gz|tgz)$' ;;
+                  x86_64:24.04) wallet_regex='^yerbas-ubuntu-24\\.04-x86-release-[0-9]+(\\.[0-9]+)*\\.(tar\\.gz|tgz)$' ;;
+                  x86_64:26.04) wallet_regex='^yerbas-ubuntu-26\\.04-x86-release-[0-9]+(\\.[0-9]+)*\\.(tar\\.gz|tgz)$' ;;
+                  aarch64:22.04) wallet_regex='^yerbas-ubuntu-22\\.04-arm64-release-[0-9]+(\\.[0-9]+)*\\.(tar\\.gz|tgz)$' ;;
+                  aarch64:24.04) wallet_regex='^yerbas-ubuntu-24\\.04-arm64-release-[0-9]+(\\.[0-9]+)*\\.(tar\\.gz|tgz)$' ;;
+                  aarch64:26.04) wallet_regex='^yerbas-ubuntu-26\\.04-arm64-release-[0-9]+(\\.[0-9]+)*\\.(tar\\.gz|tgz)$' ;;
+                  *) die "No release matcher for Ubuntu $UBUNTU_VERSION on $ARCH." ;;
+              esac
+
+              WALLET_URL="$(asset_url "$release_json" "$wallet_regex" || true)"
+              if [[ -z "$WALLET_URL" ]]; then
+                  available_assets="$(jq -r '.assets[].name' <<<"$release_json")"
+                  {
+                      echo "Available assets in release $RELEASE_TAG:"
+                      sed 's/^/  - /' <<<"$available_assets"
+                  } | tee -a "$LOG_FILE" >&2
+                  die "No compatible Yerbas wallet archive for Ubuntu $UBUNTU_VERSION on $ARCH."
+              fi
+
+              info "Latest wallet release: $RELEASE_TAG"
+              info "Selected wallet archive: ${WALLET_URL##*/}"
+
+              bootstrap_json="$(github_latest_json "$BOOTSTRAP_REPO")" || die "Unable to query latest bootstrap release."
+              BOOTSTRAP_URL="$(asset_url "$bootstrap_json" '^bootstrap(-index)?\\.zip$')" || true
+              POWCACHE_URL="$(asset_url "$bootstrap_json" 'powcache\\.dat$')" || true
+          }
+          '''
+
+          if old not in text:
+              raise SystemExit('Expected resolve_release block was not found')
+
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+          bash -n install.sh
+
+      - name: Commit installer fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add install.sh
+          git commit -m "Fix dynamic latest release archive matching"
+          git push
