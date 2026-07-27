@@ -1,0 +1,26 @@
+[Unit]
+Description=Yerbas Smartnode for %i
+Documentation=https://github.com/The-Yerbas-Endeavor/Smartnode-Installer-V2
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=%i
+Group=%i
+WorkingDirectory=/opt/yerbas/current
+ExecStart=/opt/yerbas/current/yerbasd -daemon -datadir=/home/%i/.yerbascore
+ExecStop=/opt/yerbas/current/yerbas-cli -datadir=/home/%i/.yerbascore stop
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=180
+TimeoutStopSec=180
+LimitNOFILE=65536
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/%i/.yerbascore
+
+[Install]
+WantedBy=multi-user.target
