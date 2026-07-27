@@ -282,13 +282,20 @@ next_available_port() {
 prepare_bootstrap_cache() {
     (( USE_BOOTSTRAP == 1 )) || return
     [[ -n "$BOOTSTRAP_URL" ]] || die "Latest bootstrap release has no bootstrap ZIP."
-    local zip="$CACHE_DIR/${BOOTSTRAP_URL##*/}" extract="$CACHE_DIR/bootstrap-current"
-    if [[ ! -f "$zip" ]]; then
-        info "Downloading bootstrap once for all users..."
-        curl -fL --retry 3 "$BOOTSTRAP_URL" -o "$zip"
-    fi
-    unzip -tq "$zip" >/dev/null || die "Bootstrap ZIP validation failed."
-    rm -rf "$extract"; mkdir -p "$extract"
+    local zip="$CACHE_DIR/${BOOTSTRAP_URL##*/}" part="$CACHE_DIR/${BOOTSTRAP_URL##*/}.part" extract="$CACHE_DIR/bootstrap-current"
+
+    info "Refreshing bootstrap cache for all users..."
+    rm -f "$CACHE_DIR"/bootstrap*.zip "$CACHE_DIR"/bootstrap*.zip.part "$part"
+    rm -rf "$extract"
+
+    curl -fL --retry 3 "$BOOTSTRAP_URL" -o "$part"
+    unzip -tq "$part" >/dev/null || {
+        rm -f "$part"
+        die "Bootstrap ZIP validation failed."
+    }
+    mv -f "$part" "$zip"
+
+    mkdir -p "$extract"
     unzip -q "$zip" -d "$extract"
     if [[ -d "$extract/bootstrap" ]]; then mv "$extract/bootstrap"/* "$extract"/ 2>/dev/null || true; rmdir "$extract/bootstrap" 2>/dev/null || true; fi
 }
