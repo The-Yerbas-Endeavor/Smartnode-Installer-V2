@@ -1,0 +1,107 @@
+name: Apply server IP selector
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-ip-selector-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch installer
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('install.sh')
+          text = path.read_text()
+
+          marker = 'configure_user_node() {\n'
+          helper = r'''select_server_ip() {
+    local user="$1" choice manual_ip default_route_ip public_ip candidate
+    local -a addresses=()
+
+    default_route_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}' || true)"
+    public_ip="$(curl -4fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+
+    while read -r candidate; do
+        [[ -n "$candidate" && "$candidate" != 127.* ]] || continue
+        [[ " ${addresses[*]} " == *" $candidate "* ]] || addresses+=("$candidate")
+    done < <(
+        {
+            [[ -n "$public_ip" ]] && printf '%s\n' "$public_ip"
+            [[ -n "$default_route_ip" ]] && printf '%s\n' "$default_route_ip"
+            ip -o -4 addr show scope global 2>/dev/null | awk '{split($4, a, "/"); print a[1]}'
+        } | awk 'NF && !seen[$0]++'
+    )
+
+    echo
+    echo "Available IPv4 addresses for $user:"
+    if ((${#addresses[@]})); then
+        local i
+        for i in "${!addresses[@]}"; do
+            printf '  %d) %s' "$((i + 1))" "${addresses[$i]}"
+            [[ "${addresses[$i]}" == "$public_ip" ]] && printf ' (public)'
+            [[ "${addresses[$i]}" == "$default_route_ip" ]] && printf ' (default route)'
+            echo
+        done
+    else
+        echo "  No IPv4 addresses were detected automatically."
+    fi
+    echo "  M) Enter an address manually"
+    echo "  N) Do not set externalip"
+
+    while true; do
+        read -r -p "Select IP for $user [${#addresses[@]:+1}]: " choice
+        if [[ -z "$choice" && ${#addresses[@]} -gt 0 ]]; then
+            printf '%s\n' "${addresses[0]}"
+            return
+        fi
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#addresses[@]} )); then
+            printf '%s\n' "${addresses[$((choice - 1))]}"
+            return
+        fi
+        case "${choice,,}" in
+            m|manual)
+                read -r -p "Enter public IPv4 address for $user: " manual_ip
+                if [[ "$manual_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+                    printf '%s\n' "$manual_ip"
+                    return
+                fi
+                echo "Enter a valid IPv4 address."
+                ;;
+            n|none)
+                printf '\n'
+                return
+                ;;
+            *) echo "Select a listed number, M, or N." ;;
+        esac
+    done
+}
+
+'''
+
+          if 'select_server_ip() {' not in text:
+              text = text.replace(marker, helper + marker, 1)
+
+          old = '    read -r -p "Public IP for $user: " ip\n'
+          new = '    ip="$(select_server_ip "$user")"\n'
+          if old not in text:
+              raise SystemExit('Public IP prompt not found')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+          bash -n install.sh
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add install.sh
+          git commit -m "Add selectable server IP list to installer"
+          git push
