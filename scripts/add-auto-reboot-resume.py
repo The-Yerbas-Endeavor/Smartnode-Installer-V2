@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Applies one-time prompt wording and automatic post-reboot resume support.
 from pathlib import Path
 
 path = Path("install.sh")
