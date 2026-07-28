@@ -16,3 +16,5 @@ new = '''    install_dependencies
 if old not in text:
     raise SystemExit("installer stage order not found")
 path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+# Workflow trigger after workflow creation.
