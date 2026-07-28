@@ -975,8 +975,8 @@ main() {
     detect_existing_install
     detect_platform
     install_dependencies
-    create_swap
     ipv6_provisioning
+    create_swap
     resolve_release
 
     if (( EXISTING_INSTALL == 0 || ADDITIONAL_USERS == 1 )); then
