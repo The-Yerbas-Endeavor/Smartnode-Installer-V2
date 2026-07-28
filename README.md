@@ -40,7 +40,7 @@ The installer asks for swap size, bootstrap options, the number of Smartnode use
 /usr/local/bin/yerbasd            Global daemon command
 /usr/local/bin/yerbas-cli         Global CLI command
 /etc/systemd/system/yerbasd@.service
-/var/cache/yerbas                 Shared bootstrap cache
+/var/cache/yerbas                 Shared PoW cache and installer downloads
 /var/lib/yerbas-installer/users   Managed user list
 /home/<user>/.yerbascore          Per-user node data
 ```
@@ -54,6 +54,13 @@ yerbas-node-manager restart USER
 yerbas-node-manager logs USER
 yerbas-node-manager cli USER getblockchaininfo
 yerbas-node-manager cli USER getnetworkinfo
+yerbas-node-manager cli USER smartnode status
+```
+
+The Smartnode status command reports states such as `READY` or `WAITING_FOR_PROTX`:
+
+```bash
+yerbas-node-manager cli mrx2 smartnode status
 ```
 
 Direct systemd commands also work:
