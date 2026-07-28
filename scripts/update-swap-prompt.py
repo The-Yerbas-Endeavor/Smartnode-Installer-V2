@@ -84,3 +84,5 @@ new = '''create_swap() {
 if old not in text:
     raise SystemExit("create_swap block not found")
 path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+# Trigger workflow after workflow file exists.
