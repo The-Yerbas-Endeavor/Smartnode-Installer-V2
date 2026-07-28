@@ -469,6 +469,11 @@ format_external_endpoint() {
     if [[ "$ip" == *:* ]]; then printf '[%s]:%s\n' "$ip" "$port"; else printf '%s:%s\n' "$ip" "$port"; fi
 }
 
+format_bind_address() {
+    local ip="$1"
+    if [[ "$ip" == *:* ]]; then printf '[%s]\n' "$ip"; else printf '%s\n' "$ip"; fi
+}
+
 configure_user_node() {
     local user="$1" home data p2p rpc ip endpoint bls rpcuser rpcpass
     home="$(getent passwd "$user" | cut -d: -f6)"; data="$home/$CONF_DIR_NAME"
@@ -511,7 +516,11 @@ rpcpassword=$rpcpass
 rpcport=$rpc
 port=$p2p
 EOF_CONF
-    if [[ -n "$ip" ]]; then endpoint="$(format_external_endpoint "$ip" "$p2p")"; echo "externalip=$endpoint" >>"$data/$CONF_FILE"; fi
+    if [[ -n "$ip" ]]; then
+        endpoint="$(format_external_endpoint "$ip" "$p2p")"
+        echo "bind=$(format_bind_address "$ip")" >>"$data/$CONF_FILE"
+        echo "externalip=$endpoint" >>"$data/$CONF_FILE"
+    fi
     if [[ -n "$bls" ]]; then echo "smartnodeblsprivkey=$bls" >>"$data/$CONF_FILE"; fi
     chown "$user:$user" "$data/$CONF_FILE"; chmod 0600 "$data/$CONF_FILE"
 
