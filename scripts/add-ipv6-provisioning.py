@@ -206,3 +206,5 @@ if old_main not in text:
 text = text.replace(old_main, new_main, 1)
 
 path.write_text(text, encoding="utf-8")
+
+# Workflow trigger after the workflow file exists.
