@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - scripts/apply-public-ip-menu.py
+      - .github/workflows/apply-public-ip-menu.yml
 
 permissions:
   contents: write
