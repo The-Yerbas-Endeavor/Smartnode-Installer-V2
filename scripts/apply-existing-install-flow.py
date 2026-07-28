@@ -102,3 +102,5 @@ replacement = needle + " When an existing installation is detected, the installe
 if needle in r and replacement not in r:
     r = r.replace(needle, replacement, 1)
 readme.write_text(r, encoding="utf-8")
+
+# Trigger workflow after creation.
