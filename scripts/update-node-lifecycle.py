@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 
+# Applies the node lifecycle split to install.sh.
 path = Path("install.sh")
 text = path.read_text(encoding="utf-8")
 
