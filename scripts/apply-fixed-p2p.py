@@ -40,3 +40,5 @@ r = r.replace(
     "```text\nP2P: 15420 (fixed)\nRPC: 9494, 9495, 9496, ...\n```"
 )
 readme.write_text(r, encoding="utf-8")
+
+# Trigger workflow after it exists.
