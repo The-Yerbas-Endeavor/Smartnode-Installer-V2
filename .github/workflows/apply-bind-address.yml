@@ -1,0 +1,36 @@
+name: Apply bind address configuration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/apply-bind-address.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Apply installer update
+        run: python3 scripts/apply-bind-address.py
+
+      - name: Validate shell syntax
+        run: bash -n install.sh
+
+      - name: Commit installer update
+        run: |
+          if git diff --quiet -- install.sh; then
+            echo "No installer changes were required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add install.sh
+          git commit -m "Add bind address to Yerbas configuration"
+          git push origin main
