@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - scripts/add-ipv4-provisioning.py
+      - .github/workflows/apply-ipv4-provisioning.yml
   workflow_dispatch:
 
 permissions:
