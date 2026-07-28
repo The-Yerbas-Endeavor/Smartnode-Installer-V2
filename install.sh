@@ -404,7 +404,9 @@ ConditionPathExists=$NETWORK_RESUME_FLAG
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/tmux new-session -d -s $RESUME_TMUX_SESSION /bin/bash $RESUME_SCRIPT --resume
+Environment=TERM=xterm-256color
+ExecStartPre=/bin/sleep 15
+ExecStart=/bin/bash -lc '/usr/bin/tmux has-session -t $RESUME_TMUX_SESSION 2>/dev/null || /usr/bin/tmux new-session -d -s $RESUME_TMUX_SESSION "/bin/bash -lc \"/bin/bash $RESUME_SCRIPT --resume 2>&1 | /usr/bin/tee -a $LOG_FILE; status=\\${PIPESTATUS[0]}; echo; echo Resume installer exited with status \\$status.; echo Review $LOG_FILE for details.; exec /bin/bash\""'
 RemainAfterExit=yes
 
 [Install]
