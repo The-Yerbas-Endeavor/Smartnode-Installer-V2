@@ -30,7 +30,7 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-The installer asks for swap size, bootstrap options, the number of Smartnode users, usernames, ports, public IPs, and BLS private keys.
+The installer asks for swap size, bootstrap options, the number of Smartnode users, usernames, RPC ports, public IPs, and BLS private keys. Yerbas P2P port 15420 is assigned automatically.
 
 ## Layout after installation
 
@@ -83,11 +83,11 @@ Existing `yerbas.conf`, BLS keys, wallets, and blockchain data are preserved. Th
 
 ## Multiple nodes and ports
 
-Every node on the same server must use a unique RPC port. Every node bound to the same public IP must also use a unique P2P port. The installer proposes available ports beginning with:
+Every node on the same server must use a unique RPC port. This installer uses the deployment model of one Smartnode per public IP, and every Smartnode automatically uses the required Yerbas P2P port 15420.
 
 ```text
-P2P: 15420
-RPC: 9494
+P2P: 15420 (fixed)
+RPC: 9494, 9495, 9496, ...
 ```
 
 ## Security notes

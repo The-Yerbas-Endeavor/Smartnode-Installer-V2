@@ -483,11 +483,16 @@ configure_user_node() {
         return
     fi
 
-    p2p="$(next_available_port "$DEFAULT_P2P_PORT")"
+    p2p="$DEFAULT_P2P_PORT"
     rpc="$(next_available_port "$DEFAULT_RPC_PORT")"
-    while true; do read -r -p "P2P port for $user [$p2p]: " v; p2p="${v:-$p2p}"; valid_port "$p2p" && ! port_in_use "$p2p" && break; echo "Port is invalid or in use."; done
     while true; do read -r -p "RPC port for $user [$rpc]: " v; rpc="${v:-$rpc}"; valid_port "$rpc" && [[ "$rpc" != "$p2p" ]] && ! port_in_use "$rpc" && break; echo "Port is invalid, duplicated, or in use."; done
     ip="$(select_server_ip "$user")"
+
+    if grep -RqsE "^externalip=(\[$ip\]|$ip):$DEFAULT_P2P_PORT$" /home/*/.yerbascore/yerbas.conf 2>/dev/null; then
+        die "Public IP $ip is already assigned to another Yerbas Smartnode. This installer requires one Smartnode per public IP."
+    fi
+
+    info "Using required Yerbas P2P port $DEFAULT_P2P_PORT for $user."
     read -r -s -p "BLS private key for $user (may be blank): " bls; echo
     rpcuser="yerbas_${user}"
     rpcpass="$(openssl rand -hex 32)"
