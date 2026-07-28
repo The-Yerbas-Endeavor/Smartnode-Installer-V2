@@ -1,0 +1,30 @@
+name: Update node lifecycle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/update-node-lifecycle.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Update node lifecycle
+        run: python3 scripts/update-node-lifecycle.py
+      - name: Validate installer syntax
+        run: bash -n install.sh
+      - name: Commit installer update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add install.sh
+          git commit -m "Verify only newly configured smartnodes" || exit 0
+          git push origin main
