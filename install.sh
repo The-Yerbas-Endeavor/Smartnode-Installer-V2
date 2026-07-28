@@ -299,20 +299,51 @@ PY
 }
 
 generate_ipv6_addresses() {
-    local prefix="$1" count="$2"
-    python3 - "$prefix" "$count" <<'PY'
+    local current_address="$1" count="$2"
+    python3 - "$current_address" "$count" <<'PY'
 import ipaddress
 import sys
-network = ipaddress.IPv6Network(f"{sys.argv[1]}/64", strict=False)
+
+interface = ipaddress.IPv6Interface(sys.argv[1])
 count = int(sys.argv[2])
-for host in range(1, count + 1):
-    print(f"{ipaddress.IPv6Address(int(network.network_address) + host).compressed}/64")
+base = int(interface.ip) & ~0xff
+
+for suffix in range(1, count + 1):
+    address = ipaddress.IPv6Address(base | suffix)
+    print(f"{address.compressed}/{interface.network.prefixlen}")
+PY
+}
+
+ipv6_address_is_active() {
+    local interface="$1" expected="$2"
+    ip -j -6 addr show dev "$interface" 2>/dev/null | python3 - "$expected" <<'PY'
+import ipaddress
+import json
+import sys
+
+expected = ipaddress.IPv6Address(sys.argv[1].split('/', 1)[0])
+try:
+    links = json.load(sys.stdin)
+except json.JSONDecodeError:
+    raise SystemExit(1)
+
+for link in links:
+    for info in link.get("addr_info", []):
+        local = info.get("local")
+        if not local:
+            continue
+        try:
+            if ipaddress.IPv6Address(local) == expected:
+                raise SystemExit(0)
+        except ValueError:
+            continue
+raise SystemExit(1)
 PY
 }
 
 ipv6_provisioning() {
     local interface ipv4_cidr ipv4_gateway current_ipv6 ipv6_prefix
-    local dns_list dns_yaml count generated address backup_file
+    local dns_list dns_yaml count generated address backup_file verified attempt
 
     if [[ -f "$IPV6_RESUME_FLAG" ]]; then
         RESUME_AFTER_IPV6=1
@@ -349,7 +380,7 @@ ipv6_provisioning() {
     [[ -n "$current_ipv6" ]] || die "No global IPv6 address was detected on $interface. Ask the hosting provider to assign an IPv6 /64 first."
 
     ipv6_prefix="$(normalize_ipv6_prefix64 "$current_ipv6")" || die "Unable to derive an IPv6 /64 from $current_ipv6."
-    generated="$(generate_ipv6_addresses "$ipv6_prefix" "$count")" || die "Unable to generate IPv6 addresses."
+    generated="$(generate_ipv6_addresses "$current_ipv6" "$count")" || die "Unable to generate IPv6 addresses."
 
     while read -r address; do
         [[ -n "$address" ]] || continue
@@ -403,7 +434,7 @@ ipv6_provisioning() {
     printf '%s\n' "$generated" >"$IPV6_ADDRESS_FILE"
     chmod 0600 "$IPV6_ADDRESS_FILE"
 
-    info "Generated IPv6 addresses from $ipv6_prefix/64:"
+    info "Generated IPv6 addresses using the current server IPv6 address $current_ipv6:"
     sed 's/^/  - /' "$IPV6_ADDRESS_FILE"
     info "Netplan configuration written to $IPV6_NETPLAN_FILE."
 
@@ -421,10 +452,31 @@ ipv6_provisioning() {
     fi
 
     netplan apply
-    sleep 3
+
     while read -r address; do
         [[ -n "$address" ]] || continue
-        ip -6 addr show dev "$interface" | grep -Fq "${address%/*}/" || die "IPv6 verification failed for ${address%/*}."
+        verified=0
+        for attempt in {1..15}; do
+            if ipv6_address_is_active "$interface" "$address"; then
+                verified=1
+                break
+            fi
+            sleep 2
+        done
+
+        if (( verified == 0 )); then
+            warn "IPv6 verification failed for ${address%/*}. Restoring the previous netplan configuration."
+            ip -6 addr show dev "$interface" | tee -a "$LOG_FILE" >&2 || true
+            if [[ -n "$backup_file" && -f "$backup_file" ]]; then
+                cp -a "$backup_file" "$IPV6_NETPLAN_FILE"
+            else
+                rm -f "$IPV6_NETPLAN_FILE"
+            fi
+            netplan generate >>"$LOG_FILE" 2>&1 || true
+            netplan apply >>"$LOG_FILE" 2>&1 || true
+            rm -f "$IPV6_ADDRESS_FILE"
+            die "IPv6 verification failed for ${address%/*}; the previous network configuration was restored."
+        fi
     done <"$IPV6_ADDRESS_FILE"
 
     info "All requested IPv6 addresses are active on $interface."
