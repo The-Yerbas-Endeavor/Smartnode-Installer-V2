@@ -545,7 +545,9 @@ detect_existing_install() {
         EXISTING_INSTALL=1
     fi
 
-    (( EXISTING_INSTALL == 1 )) || return
+    if (( EXISTING_INSTALL == 0 )); then
+        return 0
+    fi
 
     while read -r user; do
         [[ -n "$user" ]] || continue
