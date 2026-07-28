@@ -36,3 +36,5 @@ if old not in text:
 text = text.replace(old, new, 1)
 
 path.write_text(text, encoding="utf-8")
+
+# Trigger workflow after creation.
