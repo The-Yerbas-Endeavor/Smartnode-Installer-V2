@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Applies the production IPv6 generation and verification correction.
 from pathlib import Path
 
 path = Path("install.sh")
