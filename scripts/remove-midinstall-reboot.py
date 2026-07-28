@@ -78,3 +78,4 @@ if old_reboot not in text:
 text = text.replace(old_reboot, new_reboot, 1)
 
 path.write_text(text, encoding="utf-8")
+# Trigger the syntax-validation workflow after it has been installed.
