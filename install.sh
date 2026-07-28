@@ -32,6 +32,7 @@ EXISTING_INSTALL=0; ADDITIONAL_USERS=1
 CREATED_USERS=()
 CONFIGURED_USERS=()
 EXISTING_USERS=()
+NEW_NODE_USERS=()
 IPV6_RESUME_FLAG="$STATE_DIR/ipv6-resume"
 IPV6_ADDRESS_FILE="$STATE_DIR/ipv6-addresses"
 IPV6_NETPLAN_FILE="/etc/netplan/10-ens3.yaml"
@@ -827,6 +828,7 @@ EOF_CONF
     ufw allow "$p2p/tcp"
     systemctl enable "yerbasd@$user"
     CONFIGURED_USERS+=("$user")
+    NEW_NODE_USERS+=("$user")
     unset bls rpcpass
 }
 
@@ -881,22 +883,67 @@ configure_multiple_users() {
     done
 }
 
-start_and_verify_nodes() {
+start_nodes() {
+    local user failed=0
+
+    for user in "$@"; do
+        [[ -n "$user" ]] || continue
+        info "Starting Smartnode service for $user..."
+        if ! systemctl restart "yerbasd@$user"; then
+            warn "$user service failed to restart. Check: journalctl -u yerbasd@$user"
+            failed=1
+        fi
+    done
+
+    return "$failed"
+}
+
+verify_services() {
+    local user attempt
+    local failed=0
+    local max_attempts=15
+
+    for user in "$@"; do
+        [[ -n "$user" ]] || continue
+        attempt=0
+        until systemctl is-active --quiet "yerbasd@$user"; do
+            attempt=$((attempt + 1))
+            if (( attempt >= max_attempts )); then
+                warn "$user service is not active. Check: journalctl -u yerbasd@$user"
+                failed=1
+                break
+            fi
+            sleep 2
+        done
+
+        if systemctl is-active --quiet "yerbasd@$user"; then
+            info "$user service is active."
+        fi
+    done
+
+    return "$failed"
+}
+
+verify_smartnodes() {
     local user home attempts status_output
     local max_attempts=24
     local retry_delay=5
 
-    for user in "${CONFIGURED_USERS[@]}"; do
-        info "Starting Smartnode for $user..."
-        systemctl restart "yerbasd@$user"
+    if (( $# == 0 )); then
+        info "No newly configured Smartnodes require detailed status verification."
+        return 0
+    fi
+
+    for user in "$@"; do
+        [[ -n "$user" ]] || continue
         home="$(getent passwd "$user" | cut -d: -f6)"
         attempts=0
 
-        info "Loading blocks and checking Smartnode status for $user. Wait up to 2 minutes. Roll one up..."
+        info "Loading blocks and checking the newly configured Smartnode for $user. Wait up to 2 minutes. Roll one up..."
         until sudo -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" getblockchaininfo >/dev/null 2>&1; do
             attempts=$((attempts + 1))
             if (( attempts >= max_attempts )); then
-                warn "$user service is running, but RPC is still not ready after 2 minutes. The chain may still be loading. Check: journalctl -u yerbasd@$user"
+                warn "$user service is active, but RPC is still not ready after 2 minutes. The chain may still be loading. Check: journalctl -u yerbasd@$user"
                 break
             fi
             sleep "$retry_delay"
@@ -990,9 +1037,21 @@ main() {
     install_manager
     (( EXISTING_INSTALL == 0 || ADDITIONAL_USERS == 1 )) && configure_multiple_users
 
-    if ! start_and_verify_nodes; then
-        rollback_release && start_and_verify_nodes || true
-        die "One or more nodes failed after update; rollback attempted."
+    if ! start_nodes "${CONFIGURED_USERS[@]}" || ! verify_services "${CONFIGURED_USERS[@]}"; then
+        if rollback_release; then
+            start_nodes "${CONFIGURED_USERS[@]}" || true
+            verify_services "${CONFIGURED_USERS[@]}" || true
+        fi
+        die "One or more Smartnode services failed after the update; rollback attempted."
+    fi
+
+    if (( EXISTING_INSTALL == 0 )); then
+        verify_smartnodes "${CONFIGURED_USERS[@]}"
+    elif (( ADDITIONAL_USERS == 1 )); then
+        verify_smartnodes "${NEW_NODE_USERS[@]}"
+        info "Existing Smartnodes were restarted and service-checked without running RPC or Smartnode status checks."
+    else
+        info "Existing Smartnodes were restarted and service-checked without running RPC or Smartnode status checks."
     fi
     summary
 }
