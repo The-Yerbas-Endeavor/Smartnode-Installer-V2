@@ -541,17 +541,28 @@ configure_multiple_users() {
 
 start_and_verify_nodes() {
     local user home attempts
+    local max_attempts=24
+    local retry_delay=5
+
     for user in "${CONFIGURED_USERS[@]}"; do
         info "Starting Smartnode for $user..."
         systemctl restart "yerbasd@$user"
         home="$(getent passwd "$user" | cut -d: -f6)"
         attempts=0
+
+        info "Waiting up to 2 minutes for $user to load the chain and make RPC available..."
         until sudo -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" getblockchaininfo >/dev/null 2>&1; do
             attempts=$((attempts + 1))
-            if (( attempts >= 12 )); then warn "$user service started but RPC is not ready. Check: journalctl -u yerbasd@$user"; break; fi
-            sleep 5
+            if (( attempts >= max_attempts )); then
+                warn "$user service is running, but RPC is still not ready after 2 minutes. The chain may still be loading. Check: journalctl -u yerbasd@$user"
+                break
+            fi
+            sleep "$retry_delay"
         done
-        if (( attempts < 12 )); then info "$user RPC health check passed."; fi
+
+        if (( attempts < max_attempts )); then
+            info "$user RPC health check passed."
+        fi
     done
 }
 
