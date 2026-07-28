@@ -28,8 +28,10 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; RE
 YG="$GREEN"; CN="$RESET"
 ARCH=""; UBUNTU_VERSION=""; RELEASE_TAG=""; WALLET_URL=""; BOOTSTRAP_URL=""; BOOTSTRAP_SIZE=0; POWCACHE_URL=""
 USE_BOOTSTRAP=0; USE_POWCACHE=0
+EXISTING_INSTALL=0; ADDITIONAL_USERS=1
 CREATED_USERS=()
 CONFIGURED_USERS=()
+EXISTING_USERS=()
 
 trap 'echo -e "${RED}Installer failed on line $LINENO. See $LOG_FILE${RESET}" >&2' ERR
 
@@ -527,10 +529,42 @@ EOF_CONF
     unset bls rpcpass
 }
 
+detect_existing_install() {
+    local user home
+
+    if [[ -L "$CURRENT_LINK" || -x "$CURRENT_LINK/$DAEMON" || -s "$USERS_FILE" ]] || compgen -G "/home/*/$CONF_DIR_NAME/$CONF_FILE" >/dev/null; then
+        EXISTING_INSTALL=1
+    fi
+
+    (( EXISTING_INSTALL == 1 )) || return
+
+    while read -r user; do
+        [[ -n "$user" ]] || continue
+        id "$user" &>/dev/null || continue
+        home="$(getent passwd "$user" | cut -d: -f6)"
+        [[ -f "$home/$CONF_DIR_NAME/$CONF_FILE" ]] || continue
+        [[ " ${EXISTING_USERS[*]} " == *" $user "* ]] || EXISTING_USERS+=("$user")
+    done < <({ cat "$USERS_FILE" 2>/dev/null || true; find /home -mindepth 3 -maxdepth 3 -path "*/$CONF_DIR_NAME/$CONF_FILE" -printf '%h\n' 2>/dev/null | sed -E 's#^/home/([^/]+)/.*#\1#'; } | sort -u)
+
+    info "Existing Yerbas installation detected."
+    if ((${#EXISTING_USERS[@]})); then
+        info "Existing Smartnode users: ${EXISTING_USERS[*]}"
+        CONFIGURED_USERS+=("${EXISTING_USERS[@]}")
+    fi
+
+    if prompt_yes_no "Add additional Smartnode users to this installation?" "Y"; then
+        ADDITIONAL_USERS=1
+    else
+        ADDITIONAL_USERS=0
+        info "No additional users will be added. Existing nodes and shared binaries will be updated and checked."
+    fi
+}
+
 configure_multiple_users() {
-    local count i user
+    local count i user prompt_text="How many Smartnode users should be installed or configured? [1]: "
+    (( EXISTING_INSTALL == 1 )) && prompt_text="How many additional Smartnode users should be added? [1]: "
     while true; do
-        read -r -p "How many Smartnode users should be installed or configured? [1]: " count
+        read -r -p "$prompt_text" count
         count="${count:-1}"; [[ "$count" =~ ^[1-9][0-9]*$ ]] && break; echo "Enter a whole number greater than zero."
     done
     for ((i=1; i<=count; i++)); do
@@ -633,19 +667,22 @@ main() {
     : > "$LOG_FILE"
     banner
     initialize_paths
+    detect_existing_install
     detect_platform
     install_dependencies
     create_swap
     resolve_release
 
-    prompt_yes_no "Download and install the latest bootstrap for each new node?" "N" && USE_BOOTSTRAP=1
-    prompt_yes_no "Download and install the latest PoW cache?" "Y" && USE_POWCACHE=1
+    if (( EXISTING_INSTALL == 0 || ADDITIONAL_USERS == 1 )); then
+        prompt_yes_no "Download and install the latest bootstrap for each new node?" "N" && USE_BOOTSTRAP=1
+        prompt_yes_no "Download and install the latest PoW cache?" "Y" && USE_POWCACHE=1
+    fi
 
     stop_all_nodes
     install_shared_release
     install_service_template
     install_manager
-    configure_multiple_users
+    (( EXISTING_INSTALL == 0 || ADDITIONAL_USERS == 1 )) && configure_multiple_users
 
     if ! start_and_verify_nodes; then
         rollback_release && start_and_verify_nodes || true

@@ -79,7 +79,7 @@ Run the installer again:
 sudo ./install.sh
 ```
 
-Existing `yerbas.conf`, BLS keys, wallets, and blockchain data are preserved. The shared binaries are updated for all configured users.
+Existing `yerbas.conf`, BLS keys, wallets, and blockchain data are preserved. The shared binaries are updated for all configured users. When an existing installation is detected, the installer lists the existing Smartnode users and asks whether additional users should be added. Choosing no updates and checks the existing installation without creating another user.
 
 ## Multiple nodes and ports
 
