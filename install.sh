@@ -959,8 +959,10 @@ EOF_CONF
     chown "$user:$user" "$data/$CONF_FILE"; chmod 0600 "$data/$CONF_FILE"
 
     if (( USE_POWCACHE == 1 )); then
-        [[ -n "$POWCACHE_URL" ]] || die "Latest bootstrap release has no powcache.dat."
-        [[ -f "$CACHE_DIR/powcache.dat" ]] || curl -fL --retry 3 "$POWCACHE_URL" -o "$CACHE_DIR/powcache.dat"
+        if [[ ! -s "$CACHE_DIR/powcache.dat" ]]; then
+            [[ -n "$POWCACHE_URL" ]] || die "Latest bootstrap release has no powcache.dat."
+            curl -fL --retry 3 "$POWCACHE_URL" -o "$CACHE_DIR/powcache.dat"
+        fi
         install -m 0644 -o "$user" -g "$user" "$CACHE_DIR/powcache.dat" "$data/powcache.dat"
     fi
     install_bootstrap_for_user "$user" "$data"
@@ -1162,14 +1164,30 @@ main() {
     banner
     detect_existing_install
     detect_platform
-    install_dependencies
-    network_provisioning
-    create_swap
+
+    if (( EXISTING_INSTALL == 0 )); then
+        install_dependencies
+        network_provisioning
+        create_swap
+    else
+        info "Additional-user mode: skipping required packages, firewall, Fail2Ban, network provisioning, and swap configuration."
+    fi
+
     resolve_release
 
     if (( EXISTING_INSTALL == 0 || ADDITIONAL_USERS == 1 )); then
         prompt_yes_no "Download and install the latest bootstrap for each new node?" "N" && USE_BOOTSTRAP=1
-        prompt_yes_no "Download and install the latest PoW cache?" "Y" && USE_POWCACHE=1
+
+        if (( EXISTING_INSTALL == 1 )); then
+            if [[ -s "$CACHE_DIR/powcache.dat" ]]; then
+                USE_POWCACHE=1
+                info "Existing PoW cache detected. Reusing it for additional Smartnode users."
+            else
+                info "No shared PoW cache is available. New users will synchronize without a preloaded PoW cache."
+            fi
+        else
+            prompt_yes_no "Download and install the latest PoW cache?" "Y" && USE_POWCACHE=1
+        fi
     fi
 
     stop_all_nodes
