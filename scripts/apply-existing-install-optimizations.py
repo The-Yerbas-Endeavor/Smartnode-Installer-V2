@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 
+# Applies one-time setup and PoW-cache reuse optimizations for existing installs.
 path = Path("install.sh")
 text = path.read_text(encoding="utf-8")
 
