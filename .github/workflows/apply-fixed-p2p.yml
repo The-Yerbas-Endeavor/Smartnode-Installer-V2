@@ -1,0 +1,36 @@
+name: Apply fixed Yerbas P2P port
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/apply-fixed-p2p.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Apply installer and README updates
+        run: python3 scripts/apply-fixed-p2p.py
+
+      - name: Validate shell syntax
+        run: bash -n install.sh
+
+      - name: Commit updates
+        run: |
+          if git diff --quiet -- install.sh README.md; then
+            echo "No changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add install.sh README.md
+          git commit -m "Fix Yerbas P2P port at 15420"
+          git push origin main
