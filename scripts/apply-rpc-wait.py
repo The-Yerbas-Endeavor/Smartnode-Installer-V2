@@ -49,3 +49,5 @@ new = '''start_and_verify_nodes() {
 if old not in text:
     raise SystemExit("start_and_verify_nodes block not found")
 path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+# Triggered migration; remove this helper after application.
