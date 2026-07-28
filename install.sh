@@ -196,8 +196,9 @@ resolve_release() {
 }
 
 service_users() {
-    systemctl list-unit-files 'yerbasd@*.service' --no-legend 2>/dev/null |
+    { systemctl list-unit-files 'yerbasd@*.service' --no-legend 2>/dev/null || true; } |
         awk '{print $1}' | sed -n 's/^yerbasd@\(.*\)\.service$/\1/p' | sort -u
+    return 0
 }
 
 stop_all_nodes() {
