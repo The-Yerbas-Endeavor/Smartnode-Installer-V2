@@ -17,3 +17,5 @@ new = '''service_users() {
 if old not in text:
     raise SystemExit("service_users block not found")
 path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+# Trigger repository workflow to apply the patch to install.sh.
