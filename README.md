@@ -2,6 +2,12 @@
 
 A one-command Ubuntu installer and updater for running multiple isolated Yerbas Smartnodes on one server.
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/The-Yerbas-Endeavor/Smartnode-Installer-V2/main/install.sh -o install.sh
+chmod +x install.sh
+sudo ./install.sh
+```
+
 ## Highlights
 
 - Shared, versioned Yerbas binaries in `/opt/yerbas`
@@ -23,12 +29,6 @@ A one-command Ubuntu installer and updater for running multiple isolated Yerbas 
 - aarch64 when a compatible Yerbas release asset exists
 
 ## One-command installation
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/The-Yerbas-Endeavor/Smartnode-Installer-V2/main/install.sh -o install.sh
-chmod +x install.sh
-sudo ./install.sh
-```
 
 The installer asks for swap size, bootstrap options, the number of Smartnode users, usernames, RPC ports, public IPs, and BLS private keys. Yerbas P2P port 15420 is assigned automatically.
 
