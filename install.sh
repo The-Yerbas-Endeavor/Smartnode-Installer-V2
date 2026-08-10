@@ -1051,10 +1051,22 @@ detect_existing_install() {
 
 configure_multiple_users() {
     local count i user prompt_text="How many Smartnode users should be installed or configured? [1]: "
+    local -a users_to_configure=()
     (( EXISTING_INSTALL == 1 )) && prompt_text="How many additional Smartnode users should be added? [1]: "
+
     while true; do
         read -r -p "$prompt_text" count
         count="${count:-1}"; [[ "$count" =~ ^[1-9][0-9]*$ ]] && break; echo "Enter a whole number greater than zero."
+    done
+
+    for ((i=1; i<=count; i++)); do
+        while true; do
+            read -r -p "Smartnode username $i/$count: " user
+            valid_username "$user" || { echo "Use a valid lowercase Linux username."; continue; }
+            break
+        done
+        ensure_user "$user"
+        users_to_configure+=("$user")
     done
 
     prompt_yes_no "Download and install the latest bootstrap for each new node?" "N" && USE_BOOTSTRAP=1
@@ -1070,13 +1082,7 @@ configure_multiple_users() {
         prompt_yes_no "Download and install the latest PoW cache?" "Y" && USE_POWCACHE=1
     fi
 
-    for ((i=1; i<=count; i++)); do
-        while true; do
-            read -r -p "Smartnode username $i/$count: " user
-            valid_username "$user" || { echo "Use a valid lowercase Linux username."; continue; }
-            break
-        done
-        ensure_user "$user"
+    for user in "${users_to_configure[@]}"; do
         configure_user_node "$user"
     done
 }
