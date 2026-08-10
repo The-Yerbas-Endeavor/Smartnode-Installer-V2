@@ -1,0 +1,109 @@
+name: Patch IP menu ordering
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-ip-order.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch select_server_ip
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('install.sh')
+          text = path.read_text()
+          replacement = r'''select_server_ip() {
+    local user="$1" choice manual default=0 i ip
+    local -a public_v4=() public_v6=() choices=() labels=()
+    local candidate
+
+    while read -r candidate; do
+        [[ -n "$candidate" ]] || continue
+        is_public_ipv4 "$candidate" && public_v4+=("$candidate")
+    done < <({
+        ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p'
+        ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1
+        curl -4fsS --max-time 4 https://api.ipify.org 2>/dev/null || true
+        echo
+    } | awk 'NF && !seen[$0]++')
+
+    while read -r candidate; do
+        [[ -n "$candidate" ]] || continue
+        is_public_ipv6 "$candidate" && public_v6+=("$candidate")
+    done < <({
+        ip -6 route get 2606:4700:4700::1111 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p'
+        ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | sed 's/%.*//'
+        curl -6fsS --max-time 4 https://api64.ipify.org 2>/dev/null || true
+        echo
+    } | awk 'NF && !seen[$0]++' | python3 -c 'import ipaddress,sys; print("\n".join(sorted((x.strip() for x in sys.stdin if x.strip()), key=ipaddress.ip_address)))')
+
+    for ip in "${public_v4[@]}"; do choices+=("$ip"); labels+=("Public IPv4"); done
+    for ip in "${public_v6[@]}"; do choices+=("$ip"); labels+=("Public IPv6"); done
+
+    echo >&2
+    echo "Select the public external IP address for $user" >&2
+    echo >&2
+
+    if ((${#choices[@]} == 0)); then
+        die "No public IPv4 or IPv6 addresses were detected on this server."
+    fi
+
+    for i in "${!choices[@]}"; do
+        printf ' %2d) %-39s (%s)\n' "$i" "${choices[$i]}" "${labels[$i]}" >&2
+    done
+    printf ' %2d) Enter a different public IP manually\n' "${#choices[@]}" >&2
+
+    while true; do
+        read -r -p "Selection [$default]: " choice
+        choice="${choice:-$default}"
+        [[ "$choice" =~ ^[0-9]+$ ]] || { echo "Enter a menu number." >&2; continue; }
+
+        if ((choice >= 0 && choice < ${#choices[@]})); then
+            printf '%s\n' "${choices[$choice]}"
+            return
+        elif ((choice == ${#choices[@]})); then
+            read -r -p "Enter public IPv4 or IPv6 address: " manual
+            [[ -n "$manual" ]] || { echo "Address cannot be blank." >&2; continue; }
+            manual="${manual#[}"; manual="${manual%]}"
+
+            if is_public_ipv4 "$manual" || is_public_ipv6 "$manual"; then
+                printf '%s\n' "$manual"
+                return
+            fi
+
+            echo "Enter a public IPv4 or IPv6 address." >&2
+            continue
+        fi
+
+        echo "Invalid selection." >&2
+    done
+}'''
+
+          new, count = re.subn(r'select_server_ip\(\) \{.*?\n\}\n\nformat_external_endpoint\(\)', replacement + '\n\nformat_external_endpoint()', text, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit(f'Expected one select_server_ip function, replaced {count}')
+          path.write_text(new)
+          PY
+          bash -n install.sh
+          rm -f .github/workflows/patch-ip-order.yml
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add install.sh .github/workflows/patch-ip-order.yml
+          git commit -m "Sort Smartnode IP menu ascending [skip ci]"
+          git push origin main
