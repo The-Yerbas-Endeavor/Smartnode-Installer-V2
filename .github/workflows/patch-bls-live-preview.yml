@@ -1,0 +1,108 @@
+name: Patch BLS live preview
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-bls-live-preview.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Patch BLS input preview
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('install.sh')
+          s = p.read_text()
+
+          old = '''    while true; do
+        read -r -s -p "BLS private key for $user: " bls
+        echo
+
+        [[ -n "$bls" ]] || {
+            echo "BLS private key is required."
+            continue
+        }
+
+        if (( ${#bls} >= 8 )); then
+            echo "BLS private key entered: ${bls:0:4}...${bls: -4}"
+        else
+            echo "BLS private key is too short."
+            continue
+        fi
+
+        break
+    done
+'''
+
+          new = '''    while true; do
+        bls=""
+        printf "BLS private key for %s: " "$user"
+
+        while IFS= read -r -s -n1 ch; do
+            if [[ -z "$ch" ]]; then
+                echo
+                break
+            fi
+
+            if [[ "$ch" == $'\\177' || "$ch" == $'\\b' ]]; then
+                if (( ${#bls} > 0 )); then
+                    bls="${bls%?}"
+                fi
+            else
+                bls+="$ch"
+            fi
+
+            if (( ${#bls} >= 8 )); then
+                preview="${bls:0:4}...${bls: -4}"
+            elif (( ${#bls} > 4 )); then
+                preview="${bls:0:4}...${bls: -1}"
+            else
+                preview="$bls"
+            fi
+
+            printf '\\rBLS private key for %s: %-20s' "$user" "$preview"
+        done
+
+        [[ -n "$bls" ]] || {
+            echo "BLS private key is required."
+            continue
+        }
+
+        if (( ${#bls} < 8 )); then
+            echo "BLS private key is too short."
+            continue
+        fi
+
+        break
+    done
+'''
+
+          if old not in s:
+              raise SystemExit('Expected BLS input block not found')
+
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+          bash -n install.sh
+          rm -f .github/workflows/patch-bls-live-preview.yml
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add install.sh .github/workflows/patch-bls-live-preview.yml
+          git commit -m "Show masked BLS preview while entering [skip ci]"
+          git push origin main
