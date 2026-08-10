@@ -1,0 +1,85 @@
+name: Fix BLS indentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-bls-indent.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Fix BLS block indentation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('install.sh')
+          s = p.read_text()
+
+          old = '''    while true; do
+    read -r -s -p "BLS private key for $user: " bls
+    echo
+
+    [[ -n "$bls" ]] || {
+        echo "BLS private key is required."
+        continue
+    }
+
+    if (( ${#bls} >= 8 )); then
+        echo "BLS private key entered: ${bls:0:4}...${bls: -4}"
+    else
+        echo "BLS private key is too short."
+        continue
+    fi
+
+    break
+done
+'''
+
+          new = '''    while true; do
+        read -r -s -p "BLS private key for $user: " bls
+        echo
+
+        [[ -n "$bls" ]] || {
+            echo "BLS private key is required."
+            continue
+        }
+
+        if (( ${#bls} >= 8 )); then
+            echo "BLS private key entered: ${bls:0:4}...${bls: -4}"
+        else
+            echo "BLS private key is too short."
+            continue
+        fi
+
+        break
+    done
+'''
+
+          if old not in s:
+              raise SystemExit('Expected unindented BLS block not found; no changes made.')
+
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+          bash -n install.sh
+
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/workflows/fix-bls-indent.yml
+          git add install.sh
+          git commit -m "Fix BLS private key prompt indentation [skip ci]"
+          git push origin main
