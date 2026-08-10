@@ -1,0 +1,40 @@
+name: Restore installer and highlight READY status
+on:
+  push:
+    paths:
+      - '.github/workflows/restore-highlight-ready.yml'
+permissions:
+  contents: write
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore installer and highlight READY
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout 42a05d0d78ad94ceaca0b4aaac3d403a4c972b7a -- install.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('install.sh')
+          s = p.read_text()
+          old = '                info "$user Smartnode is READY and ready to rock!"'
+          new = '''                echo
+                echo -e "${GREEN}============================================================${RESET}"
+                echo -e "${GREEN}  ★ $user Smartnode is READY and ready to rock! ★${RESET}"
+                echo -e "${GREEN}============================================================${RESET}"
+                echo
+                log "INFO: $user Smartnode is READY and ready to rock!"'''
+          if old not in s:
+              raise SystemExit('READY status line not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          rm -f .github/workflows/restore-highlight-ready.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add install.sh .github/workflows/restore-highlight-ready.yml
+          git commit -m 'Highlight READY Smartnode status'
+          git push
