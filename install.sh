@@ -935,23 +935,23 @@ configure_user_node() {
 
     info "Using required Yerbas P2P port $DEFAULT_P2P_PORT for $user."
     while true; do
-    read -r -s -p "BLS private key for $user: " bls
-    echo
+        read -r -s -p "BLS private key for $user: " bls
+        echo
 
-    [[ -n "$bls" ]] || {
-        echo "BLS private key is required."
-        continue
-    }
+        [[ -n "$bls" ]] || {
+            echo "BLS private key is required."
+            continue
+        }
 
-    if (( ${#bls} >= 8 )); then
-        echo "BLS private key entered: ${bls:0:4}...${bls: -4}"
-    else
-        echo "BLS private key is too short."
-        continue
-    fi
+        if (( ${#bls} >= 8 )); then
+            echo "BLS private key entered: ${bls:0:4}...${bls: -4}"
+        else
+            echo "BLS private key is too short."
+            continue
+        fi
 
-    break
-done
+        break
+    done
     rpcuser="yerbas_${user}"
     rpcpass="$(openssl rand -hex 32)"
 
