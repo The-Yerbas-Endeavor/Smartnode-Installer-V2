@@ -909,7 +909,7 @@ format_bind_address() {
 }
 
 configure_user_node() {
-    local user="$1" home data p2p rpc ip endpoint bls rpcuser rpcpass ch preview
+    local user="$1" home data p2p rpc ip endpoint bls rpcuser rpcpass
     home="$(getent passwd "$user" | cut -d: -f6)"; data="$home/$CONF_DIR_NAME"
     install -d -m 0700 -o "$user" -g "$user" "$data"
 
@@ -1056,6 +1056,20 @@ configure_multiple_users() {
         read -r -p "$prompt_text" count
         count="${count:-1}"; [[ "$count" =~ ^[1-9][0-9]*$ ]] && break; echo "Enter a whole number greater than zero."
     done
+
+    prompt_yes_no "Download and install the latest bootstrap for each new node?" "N" && USE_BOOTSTRAP=1
+
+    if (( EXISTING_INSTALL == 1 )); then
+        if [[ -s "$CACHE_DIR/powcache.dat" ]]; then
+            USE_POWCACHE=1
+            info "Existing PoW cache detected. Reusing it for additional Smartnode users."
+        else
+            info "No shared PoW cache is available. New users will synchronize without a preloaded PoW cache."
+        fi
+    else
+        prompt_yes_no "Download and install the latest PoW cache?" "Y" && USE_POWCACHE=1
+    fi
+
     for ((i=1; i<=count; i++)); do
         while true; do
             read -r -p "Smartnode username $i/$count: " user
@@ -1241,21 +1255,6 @@ main() {
     fi
 
     resolve_release
-
-    if (( EXISTING_INSTALL == 0 || ADDITIONAL_USERS == 1 )); then
-        prompt_yes_no "Download and install the latest bootstrap for each new node?" "N" && USE_BOOTSTRAP=1
-
-        if (( EXISTING_INSTALL == 1 )); then
-            if [[ -s "$CACHE_DIR/powcache.dat" ]]; then
-                USE_POWCACHE=1
-                info "Existing PoW cache detected. Reusing it for additional Smartnode users."
-            else
-                info "No shared PoW cache is available. New users will synchronize without a preloaded PoW cache."
-            fi
-        else
-            prompt_yes_no "Download and install the latest PoW cache?" "Y" && USE_POWCACHE=1
-        fi
-    fi
 
     stop_all_nodes
     install_shared_release
