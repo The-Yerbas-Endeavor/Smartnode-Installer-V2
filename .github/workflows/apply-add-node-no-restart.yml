@@ -245,3 +245,5 @@ rolling_restart_nodes() {
           git add install.sh .github/workflows/apply-add-node-no-restart.yml
           git commit -m "Avoid restarting existing nodes when adding Smartnodes [skip ci]"
           git push origin main
+
+# trigger
