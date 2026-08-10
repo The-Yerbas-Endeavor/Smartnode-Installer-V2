@@ -16,7 +16,8 @@ ExecStart=/opt/yerbas/current/yerbasd -daemon -datadir=/home/%i/.yerbascore
 ExecStop=/opt/yerbas/current/yerbas-cli -datadir=/home/%i/.yerbascore stop
 Restart=on-failure
 RestartSec=10
-TimeoutStartSec=180
+# Allow enough time for multiple Smartnodes queued behind the 30-second startup lock.
+TimeoutStartSec=900
 TimeoutStopSec=180
 LimitNOFILE=65536
 PrivateTmp=true
