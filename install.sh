@@ -832,7 +832,7 @@ is_public_ipv6() {
 }
 
 select_server_ip() {
-    local user="$1" choice manual default=1 i ip
+    local user="$1" choice manual default=0 i ip
     local -a public_v4=() public_v6=() choices=() labels=()
     local candidate
 
@@ -854,7 +854,7 @@ select_server_ip() {
         ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | sed 's/%.*//'
         curl -6fsS --max-time 4 https://api64.ipify.org 2>/dev/null || true
         echo
-    } | awk 'NF && !seen[$0]++')
+    } | awk 'NF && !seen[$0]++' | python3 -c 'import ipaddress,sys; print("\n".join(sorted((x.strip() for x in sys.stdin if x.strip()), key=ipaddress.ip_address)))')
 
     for ip in "${public_v4[@]}"; do choices+=("$ip"); labels+=("Public IPv4"); done
     for ip in "${public_v6[@]}"; do choices+=("$ip"); labels+=("Public IPv6"); done
@@ -868,19 +868,19 @@ select_server_ip() {
     fi
 
     for i in "${!choices[@]}"; do
-        printf ' %2d) %-39s (%s)\n' "$((i + 1))" "${choices[$i]}" "${labels[$i]}" >&2
+        printf ' %2d) %-39s (%s)\n' "$i" "${choices[$i]}" "${labels[$i]}" >&2
     done
-    printf ' %2d) Enter a different public IP manually\n' "$((${#choices[@]} + 1))" >&2
+    printf ' %2d) Enter a different public IP manually\n' "${#choices[@]}" >&2
 
     while true; do
         read -r -p "Selection [$default]: " choice
         choice="${choice:-$default}"
         [[ "$choice" =~ ^[0-9]+$ ]] || { echo "Enter a menu number." >&2; continue; }
 
-        if ((choice >= 1 && choice <= ${#choices[@]})); then
-            printf '%s\n' "${choices[$((choice - 1))]}"
+        if ((choice >= 0 && choice < ${#choices[@]})); then
+            printf '%s\n' "${choices[$choice]}"
             return
-        elif ((choice == ${#choices[@]} + 1)); then
+        elif ((choice == ${#choices[@]})); then
             read -r -p "Enter public IPv4 or IPv6 address: " manual
             [[ -n "$manual" ]] || { echo "Address cannot be blank." >&2; continue; }
             manual="${manual#[}"; manual="${manual%]}"
