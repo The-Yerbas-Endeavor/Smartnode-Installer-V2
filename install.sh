@@ -1082,7 +1082,7 @@ verify_smartnodes() {
         home="$(getent passwd "$user" | cut -d: -f6)"
         attempts=0
 
-        info "Loading blocks and checking the newly configured Smartnode for $user. Wait up to 2 minutes. Roll one up..."
+        info "Loading blocks and waiting for RPC for $user. Wait up to 2 minutes. Roll one up..."
         until sudo -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" getblockchaininfo >/dev/null 2>&1; do
             attempts=$((attempts + 1))
             if (( attempts >= max_attempts )); then
@@ -1096,19 +1096,45 @@ verify_smartnodes() {
             continue
         fi
 
-        info "$user RPC health check passed. Checking Smartnode status..."
-        status_output="$(sudo -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" smartnode status 2>&1 || true)"
-        log "SMARTNODE STATUS $user: $status_output"
+        info "$user RPC health check passed. Waiting for Smartnode readiness..."
+        attempts=0
 
-        if grep -q 'READY' <<<"$status_output"; then
-            info "$user Smartnode is READY and ready to rock!"
-        elif grep -q 'WAITING_FOR_PROTX' <<<"$status_output"; then
-            warn "$user Smartnode is not ready yet: waiting for ProTx to appear on-chain."
-        elif grep -qiE 'make sure server is running|could not connect|connection refused|couldn.t connect' <<<"$status_output"; then
-            warn "$user could not query Smartnode status. Make sure the server is running and the correct RPC port is configured."
-        else
-            warn "$user returned an unexpected Smartnode status. Review $home/$CONF_DIR_NAME/$CONF_FILE and run: yerbas-node-manager cli $user smartnode status"
-        fi
+        while (( attempts < max_attempts )); do
+            status_output="$(sudo -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" smartnode status 2>&1 || true)"
+            log "SMARTNODE STATUS $user attempt $((attempts + 1))/$max_attempts: $status_output"
+
+            if grep -qiE '"state"[[:space:]]*:[[:space:]]*"READY"|"status"[[:space:]]*:[[:space:]]*"Ready"' <<<"$status_output"; then
+                info "$user Smartnode is READY and ready to rock!"
+                break
+            fi
+
+            attempts=$((attempts + 1))
+
+            if grep -q 'WAITING_FOR_PROTX' <<<"$status_output"; then
+                if (( attempts >= max_attempts )); then
+                    warn "$user Smartnode is still waiting for ProTx after 2 minutes."
+                    break
+                fi
+                sleep "$retry_delay"
+                continue
+            fi
+
+            if grep -qiE 'make sure server is running|could not connect|connection refused|couldn.t connect' <<<"$status_output"; then
+                if (( attempts >= max_attempts )); then
+                    warn "$user could not query Smartnode status after 2 minutes. Make sure the server is running and the correct RPC port is configured."
+                    break
+                fi
+                sleep "$retry_delay"
+                continue
+            fi
+
+            if (( attempts >= max_attempts )); then
+                warn "$user did not report READY within 2 minutes. Review $home/$CONF_DIR_NAME/$CONF_FILE and run: yerbas-node-manager cli $user smartnode status"
+                break
+            fi
+
+            sleep "$retry_delay"
+        done
     done
 }
 
