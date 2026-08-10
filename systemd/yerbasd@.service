@@ -9,9 +9,9 @@ Type=forking
 User=%i
 Group=%i
 WorkingDirectory=/opt/yerbas/current
-# Serialize concurrent Yerbas instance starts and give each one a 10-second startup window.
+# Serialize concurrent Yerbas instance starts and give each one a 30-second startup window.
 # The '+' prefix runs only this pre-start command as root so all instances can share the /run lock.
-ExecStartPre=+/usr/bin/flock -x /run/yerbas-start.lock /bin/sleep 10
+ExecStartPre=+/usr/bin/flock -x /run/yerbas-start.lock /bin/sleep 30
 ExecStart=/opt/yerbas/current/yerbasd -daemon -datadir=/home/%i/.yerbascore
 ExecStop=/opt/yerbas/current/yerbas-cli -datadir=/home/%i/.yerbascore stop
 Restart=on-failure
