@@ -28,7 +28,7 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; RE
 YG="$GREEN"; CN="$RESET"
 ARCH=""; UBUNTU_VERSION=""; RELEASE_TAG=""; WALLET_URL=""; BOOTSTRAP_URL=""; BOOTSTRAP_SIZE=0; POWCACHE_URL=""
 USE_BOOTSTRAP=0; USE_POWCACHE=0
-EXISTING_INSTALL=0; ADDITIONAL_USERS=1
+EXISTING_INSTALL=0; ADDITIONAL_USERS=1; RELEASE_CHANGED=0
 CREATED_USERS=()
 CONFIGURED_USERS=()
 EXISTING_USERS=()
@@ -1093,9 +1093,44 @@ start_nodes() {
     for user in "$@"; do
         [[ -n "$user" ]] || continue
         info "Starting Smartnode service for $user..."
+        if ! systemctl start "yerbasd@$user"; then
+            warn "$user service failed to start. Check: journalctl -u yerbasd@$user"
+            failed=1
+        fi
+    done
+
+    return "$failed"
+}
+
+rolling_restart_nodes() {
+    local user attempt failed=0
+    local max_attempts=60
+
+    for user in "$@"; do
+        [[ -n "$user" ]] || continue
+        info "Rolling restart: restarting Smartnode service for $user..."
+
         if ! systemctl restart "yerbasd@$user"; then
             warn "$user service failed to restart. Check: journalctl -u yerbasd@$user"
             failed=1
+            continue
+        fi
+
+        attempt=0
+        until systemctl is-active --quiet "yerbasd@$user"; do
+            attempt=$((attempt + 1))
+
+            if (( attempt >= max_attempts )); then
+                warn "$user service did not become active after rolling restart. Check: journalctl -u yerbasd@$user"
+                failed=1
+                break
+            fi
+
+            sleep 2
+        done
+
+        if systemctl is-active --quiet "yerbasd@$user"; then
+            info "$user rolling restart complete; service is active."
         fi
     done
 
@@ -1248,11 +1283,15 @@ summary() {
 }
 
 main() {
+    local installed_release=""
+
     require_root
     initialize_paths
+
     if [[ ! -f "$NETWORK_RESUME_FLAG" && ! -f "$LEGACY_IPV6_RESUME_FLAG" ]]; then
         : > "$LOG_FILE"
     fi
+
     banner
     detect_existing_install
     detect_platform
@@ -1267,28 +1306,68 @@ main() {
 
     resolve_release
 
-    stop_all_nodes
+    if (( EXISTING_INSTALL == 1 )); then
+        installed_release="$(cat "$STATE_DIR/current-version" 2>/dev/null || true)"
+
+        if [[ -z "$installed_release" && -L "$CURRENT_LINK" ]]; then
+            installed_release="$(basename "$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)")"
+        fi
+
+        if [[ -n "$installed_release" && "$installed_release" != "$RELEASE_TAG" ]]; then
+            RELEASE_CHANGED=1
+            info "Yerbas release change detected: $installed_release -> $RELEASE_TAG."
+            info "Existing Smartnodes will be rolling-restarted one at a time."
+        else
+            RELEASE_CHANGED=0
+            info "Yerbas release is unchanged at $RELEASE_TAG."
+            info "Existing Smartnodes will remain running."
+        fi
+    fi
+
     install_shared_release
     install_service_template
     install_manager
+
     (( EXISTING_INSTALL == 0 || ADDITIONAL_USERS == 1 )) && configure_multiple_users
 
-    if ! start_nodes "${CONFIGURED_USERS[@]}" || ! verify_services "${CONFIGURED_USERS[@]}"; then
-        if rollback_release; then
-            start_nodes "${CONFIGURED_USERS[@]}" || true
-            verify_services "${CONFIGURED_USERS[@]}" || true
+    if (( EXISTING_INSTALL == 0 )); then
+        if ! start_nodes "${CONFIGURED_USERS[@]}" || ! verify_services "${CONFIGURED_USERS[@]}"; then
+            if rollback_release; then
+                start_nodes "${CONFIGURED_USERS[@]}" || true
+                verify_services "${CONFIGURED_USERS[@]}" || true
+            fi
+            die "One or more Smartnode services failed after the install; rollback attempted."
         fi
-        die "One or more Smartnode services failed after the update; rollback attempted."
+
+        verify_smartnodes "${CONFIGURED_USERS[@]}"
+
+    else
+        if (( RELEASE_CHANGED == 1 )); then
+            if ! rolling_restart_nodes "${EXISTING_USERS[@]}"; then
+                if rollback_release; then
+                    rolling_restart_nodes "${EXISTING_USERS[@]}" || true
+                fi
+                die "One or more existing Smartnodes failed during the rolling release update; rollback attempted."
+            fi
+        else
+            info "Leaving existing Smartnode services running without restart."
+        fi
+
+        if (( ADDITIONAL_USERS == 1 && ${#NEW_NODE_USERS[@]} > 0 )); then
+            if ! start_nodes "${NEW_NODE_USERS[@]}" || ! verify_services "${NEW_NODE_USERS[@]}"; then
+                die "One or more newly added Smartnodes failed to start. Existing Smartnodes were left untouched."
+            fi
+
+            verify_smartnodes "${NEW_NODE_USERS[@]}"
+            info "Existing Smartnodes were left running; only newly added Smartnodes were started and checked."
+
+        elif (( RELEASE_CHANGED == 1 )); then
+            info "Existing Smartnodes completed the rolling release restart."
+        else
+            info "No Smartnode service restarts were required."
+        fi
     fi
 
-    if (( EXISTING_INSTALL == 0 )); then
-        verify_smartnodes "${CONFIGURED_USERS[@]}"
-    elif (( ADDITIONAL_USERS == 1 )); then
-        verify_smartnodes "${NEW_NODE_USERS[@]}"
-        info "Existing Smartnodes were restarted and service-checked without running RPC or Smartnode status checks."
-    else
-        info "Existing Smartnodes were restarted and service-checked without running RPC or Smartnode status checks."
-    fi
     summary
 }
 
