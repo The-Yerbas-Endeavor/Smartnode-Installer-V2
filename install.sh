@@ -909,7 +909,7 @@ format_bind_address() {
 }
 
 configure_user_node() {
-    local user="$1" home data p2p rpc ip endpoint bls rpcuser rpcpass
+    local user="$1" home data p2p rpc ip endpoint bls rpcuser rpcpass ch preview
     home="$(getent passwd "$user" | cut -d: -f6)"; data="$home/$CONF_DIR_NAME"
     install -d -m 0700 -o "$user" -g "$user" "$data"
 
@@ -935,17 +935,41 @@ configure_user_node() {
 
     info "Using required Yerbas P2P port $DEFAULT_P2P_PORT for $user."
     while true; do
-        read -r -s -p "BLS private key for $user: " bls
-        echo
+        bls=""
+        preview=""
+        printf "BLS private key for %s: " "$user"
+
+        while IFS= read -r -s -n1 ch; do
+            if [[ -z "$ch" ]]; then
+                printf '\n'
+                break
+            fi
+
+            if [[ "$ch" == $'\177' || "$ch" == $'\b' ]]; then
+                if (( ${#bls} > 0 )); then
+                    bls="${bls%?}"
+                fi
+            else
+                bls+="$ch"
+            fi
+
+            if (( ${#bls} >= 8 )); then
+                preview="${bls:0:4}...${bls: -4}"
+            elif (( ${#bls} >= 4 )); then
+                preview="${bls:0:4}..."
+            else
+                preview="$bls"
+            fi
+
+            printf '\r\033[2KBLS private key for %s: %s' "$user" "$preview"
+        done
 
         [[ -n "$bls" ]] || {
             echo "BLS private key is required."
             continue
         }
 
-        if (( ${#bls} >= 8 )); then
-            echo "BLS private key entered: ${bls:0:4}...${bls: -4}"
-        else
+        if (( ${#bls} < 8 )); then
             echo "BLS private key is too short."
             continue
         fi
