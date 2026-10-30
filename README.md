@@ -115,7 +115,10 @@ docs/ARCHITECTURE.md              Design documentation
 bash -n install.sh
 bash -n bin/yerbas-node-manager
 shellcheck install.sh bin/yerbas-node-manager
+python3 -m unittest discover -s tests -v
 ```
+
+The regression tests run without root, use temporary directories and mocked system commands, and never run the installer against the host. They cover RPC port selection, optional bootstrap behavior, manager parity for single-file downloads, and release rollback.
 
 ## Important deployment note
 
