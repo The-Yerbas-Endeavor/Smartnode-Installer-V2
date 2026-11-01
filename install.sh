@@ -28,7 +28,7 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; RE
 YG="$GREEN"; CN="$RESET"
 ARCH=""; UBUNTU_VERSION=""; RELEASE_TAG=""; WALLET_URL=""; BOOTSTRAP_URL=""; BOOTSTRAP_SIZE=0; POWCACHE_URL=""
 USE_BOOTSTRAP=0; USE_POWCACHE=0
-EXISTING_INSTALL=0; ADDITIONAL_USERS=1; RELEASE_CHANGED=0; MAINTENANCE_ONLY=0; RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=0
+EXISTING_INSTALL=0; ADDITIONAL_USERS=1; RELEASE_CHANGED=0; RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=0
 CREATED_USERS=()
 CONFIGURED_USERS=()
 EXISTING_USERS=()
@@ -37,7 +37,6 @@ NETWORK_RESUME_FLAG="$STATE_DIR/network-resume"
 NETWORK_ADDRESS_FILE="$STATE_DIR/network-addresses"
 NETWORK_NETPLAN_FILE="/etc/netplan/10-ens3.yaml"
 LEGACY_IPV6_RESUME_FLAG="$STATE_DIR/ipv6-resume"
-RESUME_AFTER_NETWORK=0
 
 trap 'echo -e "${RED}Installer failed on line $LINENO. See $LOG_FILE${RESET}" >&2' ERR
 
@@ -88,7 +87,22 @@ prompt_yes_no() {
 }
 
 valid_username() { [[ "$1" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; }
-valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1024 && $1 <= 65535 )); }
+# Reject leading zeroes and oversized input before Bash arithmetic evaluation.
+valid_port() { [[ "$1" =~ ^[1-9][0-9]{3,4}$ ]] && (( $1 >= 1024 && $1 <= 65535 )); }
+port_is_configured() {
+    local port="$1" home
+    while IFS=: read -r _ _ _ _ _ home _; do
+        [[ -n "$home" ]] || continue
+        if grep -qsE "^(port|rpcport)=$port$" "$home/$CONF_DIR_NAME/$CONF_FILE"; then
+            return 0
+        fi
+    done < <(getent passwd)
+    return 1
+}
+port_is_available() {
+    valid_port "$1" && [[ "$1" != "$DEFAULT_P2P_PORT" ]] &&
+        ! port_in_use "$1" && ! port_is_configured "$1"
+}
 port_in_use() { ss -H -lntup 2>/dev/null | awk '{print $5}' | grep -Eq "(^|:)$1$"; }
 
 initialize_paths() {
@@ -339,13 +353,12 @@ restore_network_configuration() {
 }
 
 network_provisioning() {
-    local interface primary_ipv4 ipv4_gateway current_ipv6="" ipv6_prefix=""
+    local interface ipv4_gateway current_ipv6="" ipv6_prefix=""
     local dns_list dns_yaml backup_file address normalized family verified attempt
     local add_ipv4=0 add_ipv6=0 ipv4_count=0 ipv6_count=0 generated_ipv6=""
     local -a current_ipv4_addresses=() current_ipv6_addresses=() supplied_ipv4=()
 
     if [[ -f "$NETWORK_RESUME_FLAG" || -f "$LEGACY_IPV6_RESUME_FLAG" ]]; then
-        RESUME_AFTER_NETWORK=1
         rm -f "$NETWORK_RESUME_FLAG" "$LEGACY_IPV6_RESUME_FLAG"
         systemctl disable yerbas-installer-resume.service >/dev/null 2>&1 || true
         rm -f /etc/systemd/system/yerbas-installer-resume.service
@@ -363,7 +376,6 @@ network_provisioning() {
     [[ -n "$interface" ]] || die "Unable to detect the primary network interface."
     mapfile -t current_ipv4_addresses < <(ip -o -4 addr show dev "$interface" scope global | awk '{print $4}' | sort -u)
     ((${#current_ipv4_addresses[@]})) || die "Unable to detect the current IPv4 address and prefix on $interface."
-    primary_ipv4="${current_ipv4_addresses[0]}"
     ipv4_gateway="$(ip -4 route show default dev "$interface" 2>/dev/null | awk 'NR == 1 {print $3}')"
     [[ -n "$ipv4_gateway" ]] || die "Unable to detect the IPv4 default gateway on $interface."
     mapfile -t current_ipv6_addresses < <(ip -o -6 addr show dev "$interface" scope global | awk '$4 !~ /^fe80:/ {print $4}' | sort -u)
@@ -482,10 +494,10 @@ maintenance_menu() {
         read -r -p "Selection [4]: " choice
         choice="${choice:-4}"
         case "$choice" in
-            1) MAINTENANCE_ONLY=1; RUN_NETWORK_UPDATE=1; RUN_WALLET_UPDATE=0; break ;;
-            2) MAINTENANCE_ONLY=1; RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=1; break ;;
-            3) MAINTENANCE_ONLY=1; RUN_NETWORK_UPDATE=1; RUN_WALLET_UPDATE=1; break ;;
-            4) MAINTENANCE_ONLY=1; RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=0; break ;;
+            1) RUN_NETWORK_UPDATE=1; RUN_WALLET_UPDATE=0; break ;;
+            2) RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=1; break ;;
+            3) RUN_NETWORK_UPDATE=1; RUN_WALLET_UPDATE=1; break ;;
+            4) RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=0; break ;;
             *) echo "Enter 1, 2, 3, or 4." ;;
         esac
     done
@@ -590,12 +602,21 @@ ensure_user() {
     unset password confirmation
 }
 
-next_available_port() { local port="$1"; while port_in_use "$port" || grep -RqsE "^(port|rpcport)=$port$" /home/*/.yerbascore/yerbas.conf 2>/dev/null; do ((port++)); done; echo "$port"; }
+next_available_port() {
+    local port="$1"
+    valid_port "$port" || die "Invalid starting RPC port: $port"
+    while (( port <= 65535 )); do
+        if port_is_available "$port"; then printf '%s\n' "$port"; return 0; fi
+        port=$((port + 1))
+    done
+    die "No available RPC ports remain between $1 and 65535."
+}
 
 install_bootstrap_for_user() {
-    (( USE_BOOTSTRAP == 1 )) || return
+    (( USE_BOOTSTRAP == 1 )) || return 0
     [[ -n "$BOOTSTRAP_URL" ]] || die "Latest bootstrap release has no bootstrap.zip asset."
-    local user="$1" data="$2" part="$data/.bootstrap.zip.part" extract="$data/.bootstrap-install.$$"
+    local user="$1" data="$2"
+    local part="$data/.bootstrap.zip.part" extract="$data/.bootstrap-install.$$"
     local available_bytes required_bytes actual_bytes extracted_bytes safety_bytes=$((1024 * 1024 * 1024))
     available_bytes="$(df -PB1 "$data" | awk 'NR == 2 {print $4}')"
     [[ "$available_bytes" =~ ^[0-9]+$ ]] || die "Unable to determine available disk space for bootstrap download for $user."
@@ -667,7 +688,7 @@ configure_user_node() {
         return
     fi
     p2p="$DEFAULT_P2P_PORT"; rpc="$(next_available_port "$DEFAULT_RPC_PORT")"
-    while true; do read -r -p "RPC port for $user [$rpc]: " v; rpc="${v:-$rpc}"; valid_port "$rpc" && [[ "$rpc" != "$p2p" ]] && ! port_in_use "$rpc" && break; echo "Port is invalid, duplicated, or in use."; done
+    while true; do read -r -p "RPC port for $user [$rpc]: " v; rpc="${v:-$rpc}"; port_is_available "$rpc" && break; echo "Port is invalid, duplicated, or in use."; done
     ip="$(select_server_ip "$user")"
     if grep -RqsE "^externalip=(\[$ip\]|$ip):$DEFAULT_P2P_PORT$" /home/*/.yerbascore/yerbas.conf 2>/dev/null; then die "Public IP $ip is already assigned to another Yerbas Smartnode. This installer requires one Smartnode per public IP."; fi
     info "Using required Yerbas P2P port $DEFAULT_P2P_PORT for $user."
@@ -786,23 +807,96 @@ verify_smartnodes() {
     done
 }
 
-rollback_release() { local previous; previous="$(cat "$STATE_DIR/previous-release" 2>/dev/null || true)"; [[ -n "$previous" && -x "$previous/$DAEMON" ]] || return 1; warn "Rolling back shared binaries to $previous"; ln -sfn "$previous" "$CURRENT_LINK"; return 0; }
+rollback_release() {
+    local previous
+    previous="$(cat "$STATE_DIR/previous-release" 2>/dev/null || true)"
+    [[ -n "$previous" && -x "$previous/$DAEMON" && -x "$previous/$CLI" ]] || return 1
+    warn "Rolling back shared binaries to $previous"
+    # This function is called in a conditional, where errexit is disabled.
+    ln -sfn "$previous" "$CURRENT_LINK" || return 1
+    RELEASE_TAG="$(basename "$previous")"
+    printf '%s\n' "$RELEASE_TAG" > "$STATE_DIR/current-version" || return 1
+    return 0
+}
 
 install_manager() {
     if [[ -f "$SCRIPT_DIR/bin/yerbas-node-manager" ]]; then install -m 0755 "$SCRIPT_DIR/bin/yerbas-node-manager" "$MANAGER"; return; fi
     cat >"$MANAGER" <<'MANAGER_SCRIPT'
 #!/usr/bin/env bash
-set -euo pipefail
-USERS_FILE=/var/lib/yerbas-installer/users
-usage(){ echo "Usage: yerbas-node-manager {status|start|stop|restart|logs|cli} [user]"; }
-users(){ [[ -f "$USERS_FILE" ]] && sort -u "$USERS_FILE"; }
-cmd="${1:-}"; user="${2:-}"
+set -Eeuo pipefail
+
+USERS_FILE="/var/lib/yerbas-installer/users"
+CLI="/usr/local/bin/yerbas-cli"
+CONF_DIR_NAME=".yerbascore"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  yerbas-node-manager status
+  yerbas-node-manager start USER
+  yerbas-node-manager stop USER
+  yerbas-node-manager restart USER
+  yerbas-node-manager logs USER
+  yerbas-node-manager cli USER [RPC COMMAND...]
+  yerbas-node-manager info USER
+USAGE
+}
+
+users() {
+    [[ -f "$USERS_FILE" ]] && sort -u "$USERS_FILE"
+}
+
+require_user() {
+    [[ -n "${1:-}" ]] || { usage; exit 1; }
+    id "$1" &>/dev/null || { echo "Unknown Linux user: $1" >&2; exit 1; }
+}
+
+node_home() {
+    getent passwd "$1" | cut -d: -f6
+}
+
+cmd="${1:-}"
+user="${2:-}"
+
 case "$cmd" in
- status) while read -r u; do [[ -n "$u" ]] || continue; printf '%-20s ' "$u"; systemctl is-active "yerbasd@$u" || true; done < <(users) ;;
- start|stop|restart) [[ -n "$user" ]] || { usage; exit 1; }; systemctl "$cmd" "yerbasd@$user" ;;
- logs) [[ -n "$user" ]] || { usage; exit 1; }; journalctl -u "yerbasd@$user" -f ;;
- cli) [[ -n "$user" ]] || { usage; exit 1; }; shift 2; home="$(getent passwd "$user"|cut -d: -f6)"; sudo -u "$user" /usr/local/bin/yerbas-cli -datadir="$home/.yerbascore" "$@" ;;
- *) usage; exit 1 ;;
+    status)
+        while read -r u; do
+            [[ -n "$u" ]] || continue
+            printf '%-20s service=%-10s enabled=%s\n' \
+                "$u" \
+                "$(systemctl is-active "yerbasd@$u" 2>/dev/null || true)" \
+                "$(systemctl is-enabled "yerbasd@$u" 2>/dev/null || true)"
+        done < <(users)
+        ;;
+    start|stop|restart)
+        require_user "$user"
+        systemctl "$cmd" "yerbasd@$user"
+        ;;
+    logs)
+        require_user "$user"
+        journalctl -u "yerbasd@$user" -f
+        ;;
+    cli)
+        require_user "$user"
+        shift 2
+        home="$(node_home "$user")"
+        sudo -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" "$@"
+        ;;
+    info)
+        require_user "$user"
+        home="$(node_home "$user")"
+        conf="$home/$CONF_DIR_NAME/yerbas.conf"
+        echo "User: $user"
+        echo "Home: $home"
+        echo "Service: $(systemctl is-active "yerbasd@$user" 2>/dev/null || true)"
+        if [[ -f "$conf" ]]; then
+            sed -n -E 's/^(port|rpcport|externalip)=/\1: /p' "$conf"
+        fi
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
 esac
 MANAGER_SCRIPT
     chmod 0755 "$MANAGER"
@@ -868,4 +962,6 @@ main() {
     summary
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

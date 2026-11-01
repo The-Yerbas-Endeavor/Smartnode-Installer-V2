@@ -7,12 +7,14 @@ on:
     paths:
       - "**/*.sh"
       - "bin/**"
+      - "tests/**"
       - ".shellcheckrc"
       - ".github/workflows/shellcheck.yml"
   pull_request:
     paths:
       - "**/*.sh"
       - "bin/**"
+      - "tests/**"
       - ".shellcheckrc"
       - ".github/workflows/shellcheck.yml"
   workflow_dispatch:
@@ -84,3 +86,6 @@ jobs:
             --external-sources \
             --source-path=SCRIPTDIR \
             "${files[@]}"
+
+      - name: Run unprivileged installer regression tests
+        run: python3 -m unittest discover -s tests -v
