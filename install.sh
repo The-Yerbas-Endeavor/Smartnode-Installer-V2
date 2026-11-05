@@ -481,15 +481,43 @@ network_provisioning() {
 }
 
 maintenance_menu() {
+    local choice
+    ADDITIONAL_USERS=0
+    RUN_WALLET_UPDATE=0
+    RUN_NETWORK_UPDATE=0
     echo
     echo "=================================================="
     echo "             Existing Installation"
     echo "=================================================="
-    if prompt_yes_no "Update/add IPv4 or IPv6 addresses?" "N"; then
-        RUN_NETWORK_UPDATE=1
+    echo "Installed Yerbas wallet: ${INSTALLED_RELEASE:-unknown}"
+    echo "Latest compatible release: $RELEASE_TAG"
+    echo
+    echo "  1) Add Smartnode"
+    if [[ -n "$INSTALLED_RELEASE" && "$INSTALLED_RELEASE" == "$RELEASE_TAG" ]]; then
+        echo "  2) Update Smartnodes (already current)"
     else
-        RUN_NETWORK_UPDATE=0
+        echo "  2) Update Smartnodes"
     fi
+    echo "  3) Update/add IPv4 or IPv6 address"
+    echo "  4) Exit (no changes)"
+    while true; do
+        read -r -p "Selection [4]: " choice
+        choice="${choice:-4}"
+        case "$choice" in
+            1) ADDITIONAL_USERS=1; break ;;
+            2)
+                if [[ -n "$INSTALLED_RELEASE" && "$INSTALLED_RELEASE" == "$RELEASE_TAG" ]]; then
+                    info "Yerbas wallet is already current ($RELEASE_TAG). No update needed."
+                    continue
+                fi
+                RUN_WALLET_UPDATE=1
+                break
+                ;;
+            3) RUN_NETWORK_UPDATE=1; break ;;
+            4) info "No maintenance changes selected."; break ;;
+            *) echo "Enter 1, 2, 3, or 4." ;;
+        esac
+    done
 }
 
 github_latest_json() { curl -fsSL --retry 3 "https://api.github.com/repos/$1/releases/latest"; }
@@ -774,12 +802,6 @@ detect_existing_install() {
     if ((${#EXISTING_USERS[@]})); then info "Existing Smartnode users: ${EXISTING_USERS[*]}"; CONFIGURED_USERS+=("${EXISTING_USERS[@]}"); fi
     INSTALLED_RELEASE="$(installed_wallet_release || true)"
     info "Currently installed Yerbas wallet release: ${INSTALLED_RELEASE:-unknown}"
-    if prompt_yes_no "Add additional Smartnode users to this installation?" "N"; then
-        ADDITIONAL_USERS=1
-    else
-        ADDITIONAL_USERS=0
-    fi
-    maintenance_menu
 }
 
 configure_multiple_users() {
@@ -947,7 +969,7 @@ main() {
 
     if (( EXISTING_INSTALL == 1 )); then
         resolve_wallet_release
-        prompt_wallet_update_if_needed
+        maintenance_menu
     fi
 
     if (( EXISTING_INSTALL == 0 )); then
