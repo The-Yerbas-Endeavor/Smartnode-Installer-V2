@@ -481,26 +481,15 @@ network_provisioning() {
 }
 
 maintenance_menu() {
-    local choice
     echo
     echo "=================================================="
     echo "             Existing Installation"
     echo "=================================================="
-    echo "  1) Update/add IPv4 or IPv6 addresses"
-    echo "  2) Check for and update Yerbas wallet"
-    echo "  3) Update network addresses and Yerbas wallet"
-    echo "  4) No maintenance changes"
-    while true; do
-        read -r -p "Selection [4]: " choice
-        choice="${choice:-4}"
-        case "$choice" in
-            1) RUN_NETWORK_UPDATE=1; RUN_WALLET_UPDATE=0; break ;;
-            2) RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=1; break ;;
-            3) RUN_NETWORK_UPDATE=1; RUN_WALLET_UPDATE=1; break ;;
-            4) RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=0; break ;;
-            *) echo "Enter 1, 2, 3, or 4." ;;
-        esac
-    done
+    if prompt_yes_no "Update/add IPv4 or IPv6 addresses?" "N"; then
+        RUN_NETWORK_UPDATE=1
+    else
+        RUN_NETWORK_UPDATE=0
+    fi
 }
 
 github_latest_json() { curl -fsSL --retry 3 "https://api.github.com/repos/$1/releases/latest"; }
@@ -742,12 +731,17 @@ detect_existing_install() {
     done < <({ cat "$USERS_FILE" 2>/dev/null || true; find /home -mindepth 3 -maxdepth 3 -path "*/$CONF_DIR_NAME/$CONF_FILE" -printf '%h\n' 2>/dev/null | sed -E 's#^/home/([^/]+)/.*#\1#'; } | sort -u)
     info "Existing Yerbas installation detected."
     if ((${#EXISTING_USERS[@]})); then info "Existing Smartnode users: ${EXISTING_USERS[*]}"; CONFIGURED_USERS+=("${EXISTING_USERS[@]}"); fi
-    if prompt_yes_no "Add additional Smartnode users to this installation?" "Y"; then
+    if prompt_yes_no "Update existing Smartnodes to the latest Yerbas wallet release?" "N"; then
+        RUN_WALLET_UPDATE=1
+    else
+        RUN_WALLET_UPDATE=0
+    fi
+    if prompt_yes_no "Add additional Smartnode users to this installation?" "N"; then
         ADDITIONAL_USERS=1
     else
         ADDITIONAL_USERS=0
-        maintenance_menu
     fi
+    maintenance_menu
 }
 
 configure_multiple_users() {
@@ -933,6 +927,15 @@ main() {
         installed_release="$(cat "$STATE_DIR/current-version" 2>/dev/null || true)"
         if [[ -z "$installed_release" && -L "$CURRENT_LINK" ]]; then installed_release="$(basename "$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)")"; fi
         if [[ -n "$installed_release" && "$installed_release" != "$RELEASE_TAG" ]]; then RELEASE_CHANGED=1; info "Yerbas release change detected: $installed_release -> $RELEASE_TAG."; info "Existing Smartnodes will be rolling-restarted one at a time."; else RELEASE_CHANGED=0; info "Yerbas release is unchanged at $RELEASE_TAG."; info "Existing Smartnodes will remain running."; fi
+    fi
+
+    if (( EXISTING_INSTALL == 1 && RELEASE_CHANGED == 1 && RUN_WALLET_UPDATE == 0 )); then
+        warn "Adding Smartnodes requires switching the shared Yerbas binaries from ${installed_release:-unknown} to $RELEASE_TAG."
+        if ! prompt_yes_no "Allow this wallet update and rolling restart of existing Smartnodes?" "N"; then
+            info "Update declined. Existing Smartnodes and their shared binaries were left unchanged."
+            return 0
+        fi
+        RUN_WALLET_UPDATE=1
     fi
 
     install_shared_release
