@@ -530,6 +530,109 @@ display_smartnode_statuses() {
     echo
 }
 
+edit_smartnode_setting() {
+    local user="$1" field="$2" value="$3" home conf tmp backup active old_port other other_home other_conf
+    [[ " \${EXISTING_USERS[*]} " == *" $user "* ]] || { warn "Smartnode is not managed by this installer."; return 1; }
+    home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
+    [[ -n "$home" ]] || { warn "Smartnode home unavailable."; return 1; }
+    conf="$home/$CONF_DIR_NAME/$CONF_FILE"
+    [[ -f "$conf" && ! -L "$conf" ]] || { warn "Smartnode config unavailable."; return 1; }
+    case "$field" in
+        smartnodeblsprivkey)
+            [[ "$value" =~ ^[[:xdigit:]]{64}$ ]] || { warn "BLS key must be 64 hex characters."; return 1; }
+            ;;
+        rpcport)
+            valid_port "$value" || { warn "Invalid RPC port."; return 1; }
+            old_port="$(sed -n 's/^rpcport=//p' "$conf" | head -n1)"
+            if [[ "$value" != "$old_port" ]] && ! port_is_available "$value"; then
+                warn "RPC port already in use or reserved."
+                return 1
+            fi
+            ;;
+        externalip)
+            [[ -n "$value" ]] || { warn "External IP is required."; return 1; }
+            if [[ "$value" == *:* ]]; then
+                [[ "$value" =~ ^[0-9A-Fa-f:]+$ ]] || { warn "Invalid IPv6 address."; return 1; }
+            else
+                [[ "$value" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { warn "Invalid IPv4 address."; return 1; }
+            fi
+            for other in "\${EXISTING_USERS[@]}"; do
+                [[ "$other" != "$user" ]] || continue
+                other_home="$(getent passwd "$other" 2>/dev/null | cut -d: -f6 || true)"
+                [[ -n "$other_home" ]] || continue
+                other_conf="$other_home/$CONF_DIR_NAME/$CONF_FILE"
+                [[ -f "$other_conf" ]] || continue
+                if grep -qxF "externalip=$(format_external_endpoint "$value" "$DEFAULT_P2P_PORT")" "$other_conf"; then
+                    warn "IP already assigned to Smartnode $other."
+                    return 1
+                fi
+            done
+            ;;
+        *) warn "Unsupported setting."; return 1 ;;
+    esac
+
+    umask 077
+    tmp="$(mktemp "$home/$CONF_DIR_NAME/.yerbas-edit.XXXXXXXX")" || return 1
+    backup="$(mktemp "$conf.bak.XXXXXXXX")" || { rm -f "$tmp"; return 1; }
+    if ! cp -p -- "$conf" "$backup"; then rm -f "$tmp" "$backup"; return 1; fi
+    if [[ "$field" == externalip ]]; then
+        awk '!/^(bind|externalip)=/' "$conf" >"$tmp"
+        printf 'bind=%s\nexternalip=%s\n' "$(format_bind_address "$value")" "$(format_external_endpoint "$value" "$DEFAULT_P2P_PORT")" >>"$tmp"
+    else
+        awk -v key="$field" '$0 !~ ("^" key "=") {print}' "$conf" >"$tmp"
+        printf '%s=%s\n' "$field" "$value" >>"$tmp"
+    fi
+    chown --reference="$conf" "$tmp" || { rm -f "$tmp"; return 1; }
+    chmod 0600 "$tmp" || { rm -f "$tmp"; return 1; }
+    mv -f -- "$tmp" "$conf" || return 1
+    info "Updated $user; configuration backup: $backup"
+    active="$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)"
+    if [[ "$active" != active ]]; then
+        info "$user is not running; changes take effect at next start."
+        return 0
+    fi
+    info "Restarting only yerbasd@$user..."
+    if systemctl restart "yerbasd@$user" && systemctl is-active --quiet "yerbasd@$user"; then
+        info "$user restarted successfully."
+        return 0
+    fi
+    warn "Restart failed. Restoring the previous configuration for $user."
+    cp -p -- "$backup" "$conf" || { warn "Restore failed; manual recovery needed from $backup."; return 1; }
+    systemctl restart "yerbasd@$user" || warn "Restored config, but $user did not restart."
+    return 1
+}
+
+edit_existing_smartnode() {
+    local choice user field value i
+    if (( \${#EXISTING_USERS[@]} == 0 )); then info "No Smartnodes available to edit."; return 0; fi
+    echo
+    echo "Select Smartnode:"
+    for i in "\${!EXISTING_USERS[@]}"; do printf '  %d) %s\n' "$((i+1))" "\${EXISTING_USERS[i]}"; done
+    read -r -p "Smartnode number (Enter to cancel): " choice
+    [[ -n "$choice" ]] || return 0
+    [[ "$choice" =~ ^[1-9][0-9]*$ ]] && (( choice <= \${#EXISTING_USERS[@]} )) || { warn "Invalid selection."; return 0; }
+    user="\${EXISTING_USERS[choice-1]}"
+    echo "Editing $user:"
+    echo "  1) Change external IP"
+    echo "  2) Change BLS private key"
+    echo "  3) Change RPC port"
+    echo "  4) Cancel"
+    read -r -p "Selection [4]: " choice
+    case "\${choice:-4}" in
+        1) field=externalip; value="$(select_server_ip "$user")" || return 0 ;;
+        2) field=smartnodeblsprivkey; read -r -s -p "New BLS key (hidden): " value; echo ;;
+        3) field=rpcport; read -r -p "New RPC port: " value ;;
+        4) return 0 ;;
+        *) warn "Invalid selection."; return 0 ;;
+    esac
+    if prompt_yes_no "Save change for $user and restart it if running?" "N"; then
+        edit_smartnode_setting "$user" "$field" "$value" || warn "Edit failed; check service logs and backup."
+    else
+        info "Edit cancelled; no changes made."
+    fi
+    unset value
+}
+
 maintenance_menu() {
     local choice
     ADDITIONAL_USERS=0
