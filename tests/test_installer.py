@@ -87,12 +87,12 @@ class InstallerTests(unittest.TestCase):
         prompt_yes_no() {
             case "$1" in
                 "Update existing Smartnodes"*) return 0 ;;
-                "Add additional Smartnode"*) return 1 ;;
-                "Update/add IPv4"*) return 1 ;;
                 *) return 1 ;;
             esac
         }
         detect_existing_install
+        RELEASE_TAG=v2
+        prompt_wallet_update_if_needed
         [[ "$EXISTING_INSTALL" == 1 ]]
         [[ "$RUN_WALLET_UPDATE" == 1 ]]
         [[ "$ADDITIONAL_USERS" == 0 ]]
@@ -100,16 +100,41 @@ class InstallerTests(unittest.TestCase):
         [[ "${EXISTING_USERS[0]}" == alice ]]''')
         self.assertIn('Existing Smartnode users: alice', result.stdout)
 
-    def test_existing_update_declined_is_not_implicit(self):
+    def test_current_release_skips_update_prompt(self):
+        result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        STATE_DIR="$TEST_DIR/state"
+        mkdir -p "$TEST_DIR/releases/v2" "$STATE_DIR"
+        touch "$TEST_DIR/releases/v2/$DAEMON"
+        chmod +x "$TEST_DIR/releases/v2/$DAEMON"
+        ln -s "$TEST_DIR/releases/v2" "$CURRENT_LINK"
+        echo v1 > "$STATE_DIR/current-version"
+        RELEASE_TAG=v2
+        prompt_yes_no() { echo "Unexpected prompt" >&2; return 99; }
+        prompt_wallet_update_if_needed
+        [[ "$INSTALLED_RELEASE" == v2 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]''')
+        self.assertIn('already current (v2)', result.stdout)
+        self.assertNotIn('Unexpected prompt', result.stderr)
+
+    def test_older_release_asks_before_updating(self):
         self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
-        mkdir -p "$TEST_DIR"
-        ln -s "$TEST_DIR/release" "$CURRENT_LINK"
-        prompt_yes_no() { return 1; }
-        detect_existing_install
-        [[ "$EXISTING_INSTALL" == 1 ]]
-        [[ "$RUN_WALLET_UPDATE" == 0 ]]
-        [[ "$ADDITIONAL_USERS" == 0 ]]
-        [[ "$RUN_NETWORK_UPDATE" == 0 ]]''')
+        mkdir -p "$TEST_DIR/releases/v1"
+        touch "$TEST_DIR/releases/v1/$DAEMON"
+        chmod +x "$TEST_DIR/releases/v1/$DAEMON"
+        ln -s "$TEST_DIR/releases/v1" "$CURRENT_LINK"
+        RELEASE_TAG=v2
+        prompt_yes_no() { [[ "$1" == *"Yerbas v2?"* ]] && return 1; return 99; }
+        prompt_wallet_update_if_needed
+        [[ "$INSTALLED_RELEASE" == v1 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]''')
+
+    def test_unknown_release_asks_before_updating(self):
+        self.run_bash('''CURRENT_LINK="$TEST_DIR/missing"
+        RELEASE_TAG=v2
+        prompt_yes_no() { [[ "$1" == *"Yerbas v2?"* ]]; }
+        prompt_wallet_update_if_needed
+        [[ -z "$INSTALLED_RELEASE" ]]
+        [[ "$RUN_WALLET_UPDATE" == 1 ]]''')
 
     def test_network_maintenance_does_not_change_wallet_choice(self):
         self.run_bash('''RUN_WALLET_UPDATE=1
