@@ -532,7 +532,7 @@ display_smartnode_statuses() {
 
 edit_smartnode_setting() {
     local user="$1" field="$2" value="$3" home conf tmp backup active old_port other other_home other_conf
-    [[ " \${EXISTING_USERS[*]} " == *" $user "* ]] || { warn "Smartnode is not managed by this installer."; return 1; }
+    [[ " ${EXISTING_USERS[*]} " == *" $user "* ]] || { warn "Smartnode is not managed by this installer."; return 1; }
     home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
     [[ -n "$home" ]] || { warn "Smartnode home unavailable."; return 1; }
     conf="$home/$CONF_DIR_NAME/$CONF_FILE"
@@ -556,7 +556,7 @@ edit_smartnode_setting() {
             else
                 [[ "$value" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { warn "Invalid IPv4 address."; return 1; }
             fi
-            for other in "\${EXISTING_USERS[@]}"; do
+            for other in "${EXISTING_USERS[@]}"; do
                 [[ "$other" != "$user" ]] || continue
                 other_home="$(getent passwd "$other" 2>/dev/null | cut -d: -f6 || true)"
                 [[ -n "$other_home" ]] || continue
@@ -604,21 +604,21 @@ edit_smartnode_setting() {
 
 edit_existing_smartnode() {
     local choice user field value i
-    if (( \${#EXISTING_USERS[@]} == 0 )); then info "No Smartnodes available to edit."; return 0; fi
+    if (( ${#EXISTING_USERS[@]} == 0 )); then info "No Smartnodes available to edit."; return 0; fi
     echo
     echo "Select Smartnode:"
-    for i in "\${!EXISTING_USERS[@]}"; do printf '  %d) %s\n' "$((i+1))" "\${EXISTING_USERS[i]}"; done
+    for i in "${!EXISTING_USERS[@]}"; do printf '  %d) %s\n' "$((i+1))" "${EXISTING_USERS[i]}"; done
     read -r -p "Smartnode number (Enter to cancel): " choice
     [[ -n "$choice" ]] || return 0
-    [[ "$choice" =~ ^[1-9][0-9]*$ ]] && (( choice <= \${#EXISTING_USERS[@]} )) || { warn "Invalid selection."; return 0; }
-    user="\${EXISTING_USERS[choice-1]}"
+    [[ "$choice" =~ ^[1-9][0-9]*$ ]] && (( choice <= ${#EXISTING_USERS[@]} )) || { warn "Invalid selection."; return 0; }
+    user="${EXISTING_USERS[choice-1]}"
     echo "Editing $user:"
     echo "  1) Change external IP"
     echo "  2) Change BLS private key"
     echo "  3) Change RPC port"
     echo "  4) Cancel"
     read -r -p "Selection [4]: " choice
-    case "\${choice:-4}" in
+    case "${choice:-4}" in
         1) field=externalip; value="$(select_server_ip "$user")" || return 0 ;;
         2) field=smartnodeblsprivkey; read -r -s -p "New BLS key (hidden): " value; echo ;;
         3) field=rpcport; read -r -p "New RPC port: " value ;;
@@ -653,10 +653,11 @@ maintenance_menu() {
     fi
     echo "  3) Update/add IPv4 or IPv6 address"
     echo "  4) Display Current Smartnodes' status"
-    echo "  5) Exit (no changes)"
+    echo "  5) Edit Smartnode"
+    echo "  6) Exit (no changes)"
     while true; do
-        read -r -p "Selection [5]: " choice
-        choice="${choice:-5}"
+        read -r -p "Selection [6]: " choice
+        choice="${choice:-6}"
         case "$choice" in
             1) ADDITIONAL_USERS=1; break ;;
             2)
@@ -669,8 +670,9 @@ maintenance_menu() {
                 ;;
             3) RUN_NETWORK_UPDATE=1; break ;;
             4) display_smartnode_statuses ;;
-            5) info "No maintenance changes selected."; break ;;
-            *) echo "Enter 1, 2, 3, 4, or 5." ;;
+            5) edit_existing_smartnode ;;
+            6) info "No maintenance changes selected."; break ;;
+            *) echo "Enter 1, 2, 3, 4, 5, or 6." ;;
         esac
     done
 }
