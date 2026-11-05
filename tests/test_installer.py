@@ -101,29 +101,56 @@ class InstallerTests(unittest.TestCase):
             result.stdout,
         )
 
-    def test_existing_update_prompt_independent_of_adding_users(self):
+    def test_existing_install_does_not_ask_separate_questions(self):
         result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
-        USERS_FILE="$TEST_DIR/users"
-        mkdir -p "$TEST_DIR/home/.yerbascore"
-        touch "$TEST_DIR/home/.yerbascore/yerbas.conf"
-        printf 'alice\\n' > "$USERS_FILE"
-        getent() { printf 'alice:x:1000:1000::%s/home:/bin/bash\\n' "$TEST_DIR"; }
-        id() { [[ "$1" == alice ]]; }
-        prompt_yes_no() {
-            case "$1" in
-                "Update existing Smartnodes"*) return 0 ;;
-                *) return 1 ;;
-            esac
-        }
+        ln -s "$TEST_DIR/missing" "$CURRENT_LINK"
+        prompt_yes_no() { echo "Unexpected prompt" >&2; return 99; }
         detect_existing_install
+        [[ "$EXISTING_INSTALL" == 1 ]]''')
+        self.assertNotIn('Unexpected prompt', result.stderr)
+
+    def test_unified_menu_select_add(self):
+        result = self.run_bash('''INSTALLED_RELEASE=v1
         RELEASE_TAG=v2
-        prompt_wallet_update_if_needed
-        [[ "$EXISTING_INSTALL" == 1 ]]
-        [[ "$RUN_WALLET_UPDATE" == 1 ]]
+        maintenance_menu <<< 1
+        [[ "$ADDITIONAL_USERS" == 1 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]
+        [[ "$RUN_NETWORK_UPDATE" == 0 ]]''')
+        self.assertIn('1) Add Smartnode', result.stdout)
+        self.assertIn('2) Update Smartnodes', result.stdout)
+        self.assertIn('3) Update/add IPv4 or IPv6 address', result.stdout)
+
+    def test_unified_menu_select_wallet_update(self):
+        self.run_bash('''INSTALLED_RELEASE=v1
+        RELEASE_TAG=v2
+        maintenance_menu <<< 2
         [[ "$ADDITIONAL_USERS" == 0 ]]
-        [[ "$RUN_NETWORK_UPDATE" == 0 ]]
-        [[ "${EXISTING_USERS[0]}" == alice ]]''')
-        self.assertIn('Existing Smartnode users: alice', result.stdout)
+        [[ "$RUN_WALLET_UPDATE" == 1 ]]
+        [[ "$RUN_NETWORK_UPDATE" == 0 ]]''')
+
+    def test_unified_menu_select_ip_update(self):
+        self.run_bash('''INSTALLED_RELEASE=v1
+        RELEASE_TAG=v2
+        maintenance_menu <<< 3
+        [[ "$ADDITIONAL_USERS" == 0 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]
+        [[ "$RUN_NETWORK_UPDATE" == 1 ]]''')
+
+    def test_unified_menu_default_exits(self):
+        self.run_bash('''INSTALLED_RELEASE=v1
+        RELEASE_TAG=v2
+        maintenance_menu <<< ""
+        [[ "$ADDITIONAL_USERS" == 0 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]
+        [[ "$RUN_NETWORK_UPDATE" == 0 ]]''')
+
+    def test_unified_menu_current_wallet_cannot_be_updated(self):
+        result = self.run_bash('''INSTALLED_RELEASE=v2
+        RELEASE_TAG=v2
+        maintenance_menu <<< $'2\\n4'
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]
+        [[ "$ADDITIONAL_USERS" == 0 ]]''')
+        self.assertIn('already current', result.stdout)
 
     def test_current_release_skips_update_prompt(self):
         result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
@@ -159,13 +186,6 @@ class InstallerTests(unittest.TestCase):
         prompt_yes_no() { [[ "$1" == *"Yerbas v2?"* ]]; }
         prompt_wallet_update_if_needed
         [[ -z "$INSTALLED_RELEASE" ]]
-        [[ "$RUN_WALLET_UPDATE" == 1 ]]''')
-
-    def test_network_maintenance_does_not_change_wallet_choice(self):
-        self.run_bash('''RUN_WALLET_UPDATE=1
-        prompt_yes_no() { return 1; }
-        maintenance_menu
-        [[ "$RUN_NETWORK_UPDATE" == 0 ]]
         [[ "$RUN_WALLET_UPDATE" == 1 ]]''')
 
     def test_rollback_restores_version_and_target(self):
