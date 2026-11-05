@@ -929,6 +929,15 @@ main() {
         if [[ -n "$installed_release" && "$installed_release" != "$RELEASE_TAG" ]]; then RELEASE_CHANGED=1; info "Yerbas release change detected: $installed_release -> $RELEASE_TAG."; info "Existing Smartnodes will be rolling-restarted one at a time."; else RELEASE_CHANGED=0; info "Yerbas release is unchanged at $RELEASE_TAG."; info "Existing Smartnodes will remain running."; fi
     fi
 
+    if (( EXISTING_INSTALL == 1 && RELEASE_CHANGED == 1 && RUN_WALLET_UPDATE == 0 )); then
+        warn "Adding Smartnodes requires switching the shared Yerbas binaries from ${installed_release:-unknown} to $RELEASE_TAG."
+        if ! prompt_yes_no "Allow this wallet update and rolling restart of existing Smartnodes?" "N"; then
+            info "Update declined. Existing Smartnodes and their shared binaries were left unchanged."
+            return 0
+        fi
+        RUN_WALLET_UPDATE=1
+    fi
+
     install_shared_release
     install_service_template
     install_manager
