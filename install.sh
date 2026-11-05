@@ -28,7 +28,7 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; RE
 YG="$GREEN"; CN="$RESET"
 ARCH=""; UBUNTU_VERSION=""; RELEASE_TAG=""; WALLET_URL=""; BOOTSTRAP_URL=""; BOOTSTRAP_SIZE=0; POWCACHE_URL=""
 USE_BOOTSTRAP=0; USE_POWCACHE=0
-EXISTING_INSTALL=0; ADDITIONAL_USERS=1; RELEASE_CHANGED=0; RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=0
+EXISTING_INSTALL=0; ADDITIONAL_USERS=1; RELEASE_CHANGED=0; RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=0; INSTALLED_RELEASE=""
 CREATED_USERS=()
 CONFIGURED_USERS=()
 EXISTING_USERS=()
@@ -495,8 +495,8 @@ maintenance_menu() {
 github_latest_json() { curl -fsSL --retry 3 "https://api.github.com/repos/$1/releases/latest"; }
 asset_url() { local json="$1" regex="$2"; jq -er --arg regex "$regex" '.assets[] | select(.name | test($regex; "i")) | .browser_download_url' <<<"$json" | head -n1; }
 
-resolve_release() {
-    local release_json bootstrap_json wallet_regex available_assets
+resolve_wallet_release() {
+    local release_json wallet_regex available_assets
     info "Resolving latest Yerbas release..."
     release_json="$(github_latest_json "$YERB_REPO")" || die "Unable to query latest Yerbas release."
     RELEASE_TAG="$(jq -er '.tag_name' <<<"$release_json")" || die "Latest Yerbas release does not contain a valid tag."
@@ -513,10 +513,51 @@ resolve_release() {
     if [[ -z "$WALLET_URL" ]]; then available_assets="$(jq -r '.assets[].name' <<<"$release_json")"; { echo "Available assets in release $RELEASE_TAG:"; sed 's/^/  - /' <<<"$available_assets"; } | tee -a "$LOG_FILE" >&2; die "No compatible Yerbas wallet archive for Ubuntu $UBUNTU_VERSION on $ARCH."; fi
     info "Latest wallet release: $RELEASE_TAG"
     info "Selected wallet archive: ${WALLET_URL##*/}"
+}
+
+resolve_bootstrap_release() {
+    local bootstrap_json
     bootstrap_json="$(github_latest_json "$BOOTSTRAP_REPO")" || die "Unable to query latest bootstrap release."
     BOOTSTRAP_URL="$(asset_url "$bootstrap_json" '^bootstrap\.zip$')" || true
     BOOTSTRAP_SIZE="$(jq -er '.assets[] | select(.name | ascii_downcase == "bootstrap.zip") | .size' <<<"$bootstrap_json" | head -n1)" || BOOTSTRAP_SIZE=0
     POWCACHE_URL="$(asset_url "$bootstrap_json" 'powcache\.dat$')" || true
+}
+
+resolve_release() {
+    resolve_wallet_release
+    resolve_bootstrap_release
+}
+
+installed_wallet_release() {
+    local active_release=""
+    # Prefer the active binary link over potentially stale state metadata.
+    if [[ -L "$CURRENT_LINK" ]]; then
+        active_release="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
+        if [[ -n "$active_release" && -x "$active_release/$DAEMON" ]]; then
+            basename "$active_release"
+            return 0
+        fi
+    fi
+    if [[ -x "$CURRENT_LINK/$DAEMON" && -s "$STATE_DIR/current-version" ]]; then
+        cat "$STATE_DIR/current-version"
+        return 0
+    fi
+    return 1
+}
+
+prompt_wallet_update_if_needed() {
+    INSTALLED_RELEASE="$(installed_wallet_release || true)"
+    if [[ -n "$INSTALLED_RELEASE" && "$INSTALLED_RELEASE" == "$RELEASE_TAG" ]]; then
+        info "Yerbas wallet is already current ($RELEASE_TAG). Skipping update prompt."
+        RUN_WALLET_UPDATE=0
+    else
+        info "Installed Yerbas wallet: ${INSTALLED_RELEASE:-unknown}; latest release: $RELEASE_TAG."
+        if prompt_yes_no "Update existing Smartnodes to Yerbas $RELEASE_TAG?" "N"; then
+            RUN_WALLET_UPDATE=1
+        else
+            RUN_WALLET_UPDATE=0
+        fi
+    fi
 }
 
 service_users() { { systemctl list-unit-files 'yerbasd@*.service' --no-legend 2>/dev/null || true; } | awk '{print $1}' | sed -n 's/^yerbasd@\(.*\)\.service$/\1/p' | sort -u; return 0; }
@@ -731,11 +772,6 @@ detect_existing_install() {
     done < <({ cat "$USERS_FILE" 2>/dev/null || true; find /home -mindepth 3 -maxdepth 3 -path "*/$CONF_DIR_NAME/$CONF_FILE" -printf '%h\n' 2>/dev/null | sed -E 's#^/home/([^/]+)/.*#\1#'; } | sort -u)
     info "Existing Yerbas installation detected."
     if ((${#EXISTING_USERS[@]})); then info "Existing Smartnode users: ${EXISTING_USERS[*]}"; CONFIGURED_USERS+=("${EXISTING_USERS[@]}"); fi
-    if prompt_yes_no "Update existing Smartnodes to the latest Yerbas wallet release?" "N"; then
-        RUN_WALLET_UPDATE=1
-    else
-        RUN_WALLET_UPDATE=0
-    fi
     if prompt_yes_no "Add additional Smartnode users to this installation?" "N"; then
         ADDITIONAL_USERS=1
     else
@@ -904,8 +940,13 @@ main() {
     initialize_paths
     if [[ ! -f "$NETWORK_RESUME_FLAG" && ! -f "$LEGACY_IPV6_RESUME_FLAG" ]]; then : > "$LOG_FILE"; fi
     banner
-    detect_existing_install
     detect_platform
+    detect_existing_install
+
+    if (( EXISTING_INSTALL == 1 )); then
+        resolve_wallet_release
+        prompt_wallet_update_if_needed
+    fi
 
     if (( EXISTING_INSTALL == 0 )); then
         install_dependencies
@@ -915,7 +956,7 @@ main() {
     else
         info "Existing-install mode: skipping required packages, firewall, Fail2Ban, and swap configuration."
         if (( RUN_NETWORK_UPDATE == 1 )); then network_provisioning; fi
-        if (( ADDITIONAL_USERS == 1 || RUN_WALLET_UPDATE == 1 )); then resolve_release; fi
+        if (( ADDITIONAL_USERS == 1 || RUN_WALLET_UPDATE == 1 )); then resolve_bootstrap_release; fi
     fi
 
     if (( EXISTING_INSTALL == 1 && ADDITIONAL_USERS == 0 && RUN_WALLET_UPDATE == 0 )); then
@@ -924,8 +965,7 @@ main() {
     fi
 
     if (( EXISTING_INSTALL == 1 )); then
-        installed_release="$(cat "$STATE_DIR/current-version" 2>/dev/null || true)"
-        if [[ -z "$installed_release" && -L "$CURRENT_LINK" ]]; then installed_release="$(basename "$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)")"; fi
+        installed_release="$INSTALLED_RELEASE"
         if [[ -n "$installed_release" && "$installed_release" != "$RELEASE_TAG" ]]; then RELEASE_CHANGED=1; info "Yerbas release change detected: $installed_release -> $RELEASE_TAG."; info "Existing Smartnodes will be rolling-restarted one at a time."; else RELEASE_CHANGED=0; info "Yerbas release is unchanged at $RELEASE_TAG."; info "Existing Smartnodes will remain running."; fi
     fi
 
