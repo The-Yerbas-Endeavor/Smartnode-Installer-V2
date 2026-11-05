@@ -147,7 +147,7 @@ class InstallerTests(unittest.TestCase):
     def test_unified_menu_current_wallet_cannot_be_updated(self):
         result = self.run_bash('''INSTALLED_RELEASE=v2
         RELEASE_TAG=v2
-        maintenance_menu <<< $'2\\n5'
+        maintenance_menu <<< $'2\\n6'
         [[ "$RUN_WALLET_UPDATE" == 0 ]]
         [[ "$ADDITIONAL_USERS" == 0 ]]''')
         self.assertIn('already current', result.stdout)
