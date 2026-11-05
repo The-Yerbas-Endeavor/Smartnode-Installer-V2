@@ -481,26 +481,15 @@ network_provisioning() {
 }
 
 maintenance_menu() {
-    local choice
     echo
     echo "=================================================="
     echo "             Existing Installation"
     echo "=================================================="
-    echo "  1) Update/add IPv4 or IPv6 addresses"
-    echo "  2) Check for and update Yerbas wallet"
-    echo "  3) Update network addresses and Yerbas wallet"
-    echo "  4) No maintenance changes"
-    while true; do
-        read -r -p "Selection [4]: " choice
-        choice="${choice:-4}"
-        case "$choice" in
-            1) RUN_NETWORK_UPDATE=1; RUN_WALLET_UPDATE=0; break ;;
-            2) RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=1; break ;;
-            3) RUN_NETWORK_UPDATE=1; RUN_WALLET_UPDATE=1; break ;;
-            4) RUN_NETWORK_UPDATE=0; RUN_WALLET_UPDATE=0; break ;;
-            *) echo "Enter 1, 2, 3, or 4." ;;
-        esac
-    done
+    if prompt_yes_no "Update/add IPv4 or IPv6 addresses?" "N"; then
+        RUN_NETWORK_UPDATE=1
+    else
+        RUN_NETWORK_UPDATE=0
+    fi
 }
 
 github_latest_json() { curl -fsSL --retry 3 "https://api.github.com/repos/$1/releases/latest"; }
@@ -742,12 +731,17 @@ detect_existing_install() {
     done < <({ cat "$USERS_FILE" 2>/dev/null || true; find /home -mindepth 3 -maxdepth 3 -path "*/$CONF_DIR_NAME/$CONF_FILE" -printf '%h\n' 2>/dev/null | sed -E 's#^/home/([^/]+)/.*#\1#'; } | sort -u)
     info "Existing Yerbas installation detected."
     if ((${#EXISTING_USERS[@]})); then info "Existing Smartnode users: ${EXISTING_USERS[*]}"; CONFIGURED_USERS+=("${EXISTING_USERS[@]}"); fi
-    if prompt_yes_no "Add additional Smartnode users to this installation?" "Y"; then
+    if prompt_yes_no "Update existing Smartnodes to the latest Yerbas wallet release?" "N"; then
+        RUN_WALLET_UPDATE=1
+    else
+        RUN_WALLET_UPDATE=0
+    fi
+    if prompt_yes_no "Add additional Smartnode users to this installation?" "N"; then
         ADDITIONAL_USERS=1
     else
         ADDITIONAL_USERS=0
-        maintenance_menu
     fi
+    maintenance_menu
 }
 
 configure_multiple_users() {
