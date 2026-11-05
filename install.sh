@@ -482,16 +482,18 @@ network_provisioning() {
 
 display_smartnode_statuses() {
     local user home service enabled rpc_output state height
+    local -a users=("${@}")
+    if (( $# == 0 )); then users=("${EXISTING_USERS[@]}"); fi
     echo
     echo "=================================================="
     echo "             Current Smartnode Status"
     echo "=================================================="
-    if (( ${#EXISTING_USERS[@]} == 0 )); then
+    if (( ${#users[@]} == 0 )); then
         echo "No configured Smartnodes were found."
         return 0
     fi
 
-    for user in "${EXISTING_USERS[@]}"; do
+    for user in "${users[@]}"; do
         [[ -n "$user" ]] || continue
         service="$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)"
         enabled="$(systemctl is-enabled "yerbasd@$user" 2>/dev/null || true)"
@@ -1077,6 +1079,8 @@ main() {
         fi
     fi
     summary
+    # Show every configured node, including nodes just added during this run.
+    display_smartnode_statuses "${CONFIGURED_USERS[@]}"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
