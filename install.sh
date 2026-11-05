@@ -500,7 +500,7 @@ display_smartnode_statuses() {
         printf '\nSmartnode: %s\n' "$user"
         printf '  Service: %s (enabled: %s)\n' "${service:-unknown}" "${enabled:-unknown}"
 
-        home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6)"
+        home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
         if [[ -z "$home" || ! -f "$home/$CONF_DIR_NAME/$CONF_FILE" ]]; then
             echo "  Smartnode: configuration unavailable"
             continue
