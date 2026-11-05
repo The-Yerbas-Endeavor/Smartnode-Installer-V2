@@ -152,11 +152,11 @@ class InstallerTests(unittest.TestCase):
         [[ "$ADDITIONAL_USERS" == 0 ]]''')
         self.assertIn('already current', result.stdout)
 
-    def test_unified_menu_status_returns_to_menu_without_changes(self):
+    def test_status_menu_returns_without_modifications(self):
         result = self.run_bash('''INSTALLED_RELEASE=v1
         RELEASE_TAG=v2
         EXISTING_USERS=(alice bob)
-        display_smartnode_statuses() { echo "Status checked: ${EXISTING_USERS[*]}"; }
+        display_smartnode_statuses() { printf 'Status for: %s\n' "$*"; }
         maintenance_menu <<< 
         result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
         STATE_DIR="$TEST_DIR/state"
@@ -318,38 +318,39 @@ if __name__ == '__main__':
 
 if __name__ == '__main__':
     unittest.main()
-4\\n5'
+4\n5'
         [[ "$ADDITIONAL_USERS" == 0 ]]
         [[ "$RUN_WALLET_UPDATE" == 0 ]]
         [[ "$RUN_NETWORK_UPDATE" == 0 ]]''')
-        self.assertIn('4) Display Current Smartnodes', result.stdout)
+        self.assertIn('Status for: ', result.stdout)
+        self.assertIn("4) Display Current Smartnodes' status", result.stdout)
         self.assertIn('5) Exit (no changes)', result.stdout)
-        self.assertIn('Status checked: alice bob', result.stdout)
 
-    def test_status_display_covers_running_and_unavailable_nodes(self):
-        result = self.run_bash('''EXISTING_USERS=(alice bob)
-        CURRENT_LINK="$TEST_DIR/current"
-        mkdir -p "$TEST_DIR/current" "$TEST_DIR/alice/.yerbascore" "$TEST_DIR/bob/.yerbascore"
+    def test_status_reports_all_explicit_users_including_new_nodes(self):
+        result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        EXISTING_USERS=(old)
+        mkdir -p "$TEST_DIR/current" "$TEST_DIR/old/.yerbascore" "$TEST_DIR/new/.yerbascore"
         touch "$TEST_DIR/current/$CLI"
         chmod +x "$TEST_DIR/current/$CLI"
-        touch "$TEST_DIR/alice/.yerbascore/yerbas.conf" "$TEST_DIR/bob/.yerbascore/yerbas.conf"
+        touch "$TEST_DIR/old/.yerbascore/yerbas.conf" "$TEST_DIR/new/.yerbascore/yerbas.conf"
         getent() {
             case "$2" in
-                alice) printf 'alice:x:1000:1000::%s/alice:/bin/bash\\n' "$TEST_DIR" ;;
-                bob) printf 'bob:x:1001:1001::%s/bob:/bin/bash\\n' "$TEST_DIR" ;;
+                old) printf 'old:x:1000:1000::%s/old:/bin/bash\n' "$TEST_DIR" ;;
+                new) printf 'new:x:1001:1001::%s/new:/bin/bash\n' "$TEST_DIR" ;;
             esac
         }
         systemctl() {
-            if [[ "$2" == "yerbasd@alice" ]]; then
-                [[ "$1" == is-active ]] && echo active || echo enabled
-            else
-                [[ "$1" == is-active ]] && echo inactive || echo disabled
-            fi
+            case "$1:$2" in
+                is-active:yerbasd@old) echo active ;;
+                is-enabled:yerbasd@old) echo enabled ;;
+                is-active:yerbasd@new) echo inactive ;;
+                is-enabled:yerbasd@new) echo enabled ;;
+            esac
         }
         timeout() {
-            if [[ "$*" == *" -u alice "* ]]; then
-                if [[ "$*" == *"smartnode status"* ]]; then
-                    printf '{"state":"READY"}\\n'
+            if [[ "$*" == *" -u old "* ]]; then
+                if [[ "$*" == *"smartnode status" ]]; then
+                    echo '{"state":"READY"}'
                 else
                     echo 1450000
                 fi
@@ -357,19 +358,27 @@ if __name__ == '__main__':
                 return 1
             fi
         }
-        display_smartnode_statuses''')
-        self.assertIn('Smartnode: alice', result.stdout)
+        display_smartnode_statuses old new''')
+        self.assertIn('Smartnode: old', result.stdout)
         self.assertIn('Service: active (enabled: enabled)', result.stdout)
         self.assertIn('Smartnode: READY', result.stdout)
         self.assertIn('Block height: 1450000', result.stdout)
-        self.assertIn('Smartnode: bob', result.stdout)
-        self.assertIn('Service: inactive (enabled: disabled)', result.stdout)
+        self.assertIn('Smartnode: new', result.stdout)
+        self.assertIn('Service: inactive (enabled: enabled)', result.stdout)
         self.assertIn('RPC unavailable', result.stdout)
 
-    def test_status_display_handles_no_nodes(self):
+    def test_status_handles_no_detected_nodes(self):
         result = self.run_bash('''EXISTING_USERS=()
         display_smartnode_statuses''')
         self.assertIn('No configured Smartnodes were found.', result.stdout)
+
+    def test_status_defaults_to_existing_users(self):
+        result = self.run_bash('''EXISTING_USERS=(alice bob)
+        systemctl() { echo inactive; }
+        getent() { return 1; }
+        display_smartnode_statuses''')
+        self.assertIn('Smartnode: alice', result.stdout)
+        self.assertIn('Smartnode: bob', result.stdout)
 
     def test_current_release_skips_update_prompt(self):
         result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
