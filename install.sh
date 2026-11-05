@@ -772,6 +772,8 @@ detect_existing_install() {
     done < <({ cat "$USERS_FILE" 2>/dev/null || true; find /home -mindepth 3 -maxdepth 3 -path "*/$CONF_DIR_NAME/$CONF_FILE" -printf '%h\n' 2>/dev/null | sed -E 's#^/home/([^/]+)/.*#\1#'; } | sort -u)
     info "Existing Yerbas installation detected."
     if ((${#EXISTING_USERS[@]})); then info "Existing Smartnode users: ${EXISTING_USERS[*]}"; CONFIGURED_USERS+=("${EXISTING_USERS[@]}"); fi
+    INSTALLED_RELEASE="$(installed_wallet_release || true)"
+    info "Currently installed Yerbas wallet release: ${INSTALLED_RELEASE:-unknown}"
     if prompt_yes_no "Add additional Smartnode users to this installation?" "N"; then
         ADDITIONAL_USERS=1
     else
