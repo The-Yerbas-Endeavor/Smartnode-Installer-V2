@@ -480,6 +480,54 @@ network_provisioning() {
     return 0
 }
 
+display_smartnode_statuses() {
+    local user home service enabled rpc_output state height
+    echo
+    echo "=================================================="
+    echo "             Current Smartnode Status"
+    echo "=================================================="
+    if (( ${#EXISTING_USERS[@]} == 0 )); then
+        echo "No configured Smartnodes were found."
+        return 0
+    fi
+
+    for user in "${EXISTING_USERS[@]}"; do
+        [[ -n "$user" ]] || continue
+        service="$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)"
+        enabled="$(systemctl is-enabled "yerbasd@$user" 2>/dev/null || true)"
+        printf '\nSmartnode: %s\n' "$user"
+        printf '  Service: %s (enabled: %s)\n' "${service:-unknown}" "${enabled:-unknown}"
+
+        home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6)"
+        if [[ -z "$home" || ! -f "$home/$CONF_DIR_NAME/$CONF_FILE" ]]; then
+            echo "  Smartnode: configuration unavailable"
+            continue
+        fi
+        if [[ ! -x "$CURRENT_LINK/$CLI" && ! -x /usr/local/bin/$CLI ]]; then
+            echo "  Smartnode: Yerbas CLI unavailable"
+            continue
+        fi
+        # Read-only RPC calls; bounded so one unresponsive node cannot block the menu.
+        if rpc_output="$(timeout 12 sudo -n -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" smartnode status 2>/dev/null)"; then
+            state="$(jq -r 'if type == "object" then (.state // .status // .result.state // .result.status // "unknown") else "unknown" end | tostring' <<<"$rpc_output" 2>/dev/null || true)"
+            printf '  Smartnode: %s\n' "${state:-RPC responding (status unavailable)}"
+        else
+            echo "  Smartnode: RPC unavailable (stopped, loading, or not responding)"
+        fi
+
+        if height="$(timeout 12 sudo -n -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" getblockcount 2>/dev/null)"; then
+            if [[ "$height" =~ ^[0-9]+$ ]]; then
+                printf '  Block height: %s\n' "$height"
+            else
+                echo "  Block height: unavailable"
+            fi
+        else
+            echo "  Block height: unavailable"
+        fi
+    done
+    echo
+}
+
 maintenance_menu() {
     local choice
     ADDITIONAL_USERS=0
@@ -499,10 +547,11 @@ maintenance_menu() {
         echo "  2) Update Smartnodes"
     fi
     echo "  3) Update/add IPv4 or IPv6 address"
-    echo "  4) Exit (no changes)"
+    echo "  4) Display Current Smartnodes' status"
+    echo "  5) Exit (no changes)"
     while true; do
-        read -r -p "Selection [4]: " choice
-        choice="${choice:-4}"
+        read -r -p "Selection [5]: " choice
+        choice="${choice:-5}"
         case "$choice" in
             1) ADDITIONAL_USERS=1; break ;;
             2)
@@ -514,8 +563,9 @@ maintenance_menu() {
                 break
                 ;;
             3) RUN_NETWORK_UPDATE=1; break ;;
-            4) info "No maintenance changes selected."; break ;;
-            *) echo "Enter 1, 2, 3, or 4." ;;
+            4) display_smartnode_statuses ;;
+            5) info "No maintenance changes selected."; break ;;
+            *) echo "Enter 1, 2, 3, 4, or 5." ;;
         esac
     done
 }
