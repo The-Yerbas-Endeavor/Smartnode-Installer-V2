@@ -76,6 +76,48 @@ class InstallerTests(unittest.TestCase):
         cmp "$MANAGER" "$REPO/bin/yerbas-node-manager"
         [[ -x "$MANAGER" ]]''')
 
+    def test_existing_update_prompt_independent_of_adding_users(self):
+        result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        USERS_FILE="$TEST_DIR/users"
+        mkdir -p "$TEST_DIR/home/.yerbascore"
+        touch "$TEST_DIR/home/.yerbascore/yerbas.conf"
+        printf 'alice\\n' > "$USERS_FILE"
+        getent() { printf 'alice:x:1000:1000::%s/home:/bin/bash\\n' "$TEST_DIR"; }
+        id() { [[ "$1" == alice ]]; }
+        prompt_yes_no() {
+            case "$1" in
+                "Update existing Smartnodes"*) return 0 ;;
+                "Add additional Smartnode"*) return 1 ;;
+                "Update/add IPv4"*) return 1 ;;
+                *) return 1 ;;
+            esac
+        }
+        detect_existing_install
+        [[ "$EXISTING_INSTALL" == 1 ]]
+        [[ "$RUN_WALLET_UPDATE" == 1 ]]
+        [[ "$ADDITIONAL_USERS" == 0 ]]
+        [[ "$RUN_NETWORK_UPDATE" == 0 ]]
+        [[ "${EXISTING_USERS[0]}" == alice ]]''')
+        self.assertIn('Existing Smartnode users: alice', result.stdout)
+
+    def test_existing_update_declined_is_not_implicit(self):
+        self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$TEST_DIR"
+        ln -s "$TEST_DIR/release" "$CURRENT_LINK"
+        prompt_yes_no() { return 1; }
+        detect_existing_install
+        [[ "$EXISTING_INSTALL" == 1 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]
+        [[ "$ADDITIONAL_USERS" == 0 ]]
+        [[ "$RUN_NETWORK_UPDATE" == 0 ]]''')
+
+    def test_network_maintenance_does_not_change_wallet_choice(self):
+        self.run_bash('''RUN_WALLET_UPDATE=1
+        prompt_yes_no() { return 1; }
+        maintenance_menu
+        [[ "$RUN_NETWORK_UPDATE" == 0 ]]
+        [[ "$RUN_WALLET_UPDATE" == 1 ]]''')
+
     def test_rollback_restores_version_and_target(self):
         self.run_bash('''STATE_DIR="$TEST_DIR/state"
         CURRENT_LINK="$TEST_DIR/current"
