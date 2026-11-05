@@ -71,6 +71,20 @@ sudo systemctl restart yerbasd@USER
 sudo journalctl -u yerbasd@USER -f
 ```
 
+## Smartnode status after reboot
+
+The installer registers a read-only systemd timer that creates a status report about **3 minutes after each server boot**. It reports all registered Smartnodes (service active/enabled state, Smartnode readiness when RPC is available, and block height), without restarting or modifying any nodes. A slow-to-start Smartnode may initially show `RPC unavailable or still loading`.
+
+The saved report automatically appears in the login banner on subsequent SSH connections after the report completes. SSH logins before the boot check completes show a short *pending* message; the login banner never waits for RPC.
+
+```bash
+sudo journalctl -u yerbas-boot-status.service -b --no-pager
+cat /run/yerbas-smartnodes/status
+sudo systemctl start yerbas-boot-status.service  # refresh immediately
+```
+
+The boot-status script is `/usr/local/sbin/yerbas-boot-status`, and the timer is `yerbas-boot-status.timer`. The report resides in `/run` and is regenerated after reboot. Run the installer again to install these startup hooks on an existing server.
+
 ## Updating
 
 Run the installer again:

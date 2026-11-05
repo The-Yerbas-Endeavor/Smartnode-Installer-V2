@@ -669,6 +669,106 @@ install_shared_release() {
     echo "$RELEASE_TAG" > "$STATE_DIR/current-version"
 }
 
+install_boot_status_reporting() {
+    # Inline assets preserve the supported single-file installer workflow.
+    install -d -m 0755 /usr/local/sbin /etc/systemd/system /etc/update-motd.d
+    cat >/usr/local/sbin/yerbas-boot-status <<'BOOT_STATUS_SCRIPT'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+users_file=/var/lib/yerbas-installer/users
+report_dir=/run/yerbas-smartnodes
+report=$report_dir/status
+cli=/opt/yerbas/current/yerbas-cli
+install -d -m 0755 "$report_dir"
+umask 022
+temp="$(mktemp "$report_dir/.status.XXXXXXXX")"
+trap 'rm -f "$temp"' EXIT
+{
+    printf 'Yerbas Smartnode status after server startup\n'
+    printf 'Checked: %s\n' "$(date -Is)"
+    printf '%s\n' '--------------------------------------------------'
+    if [[ ! -s "$users_file" ]]; then
+        echo 'No registered Smartnodes found.'
+    else
+        while IFS= read -r user; do
+            [[ "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || continue
+            service="$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)"
+            enabled="$(systemctl is-enabled "yerbasd@$user" 2>/dev/null || true)"
+            printf '\n%s: service=%s enabled=%s\n' "$user" "$service" "$enabled"
+            home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
+            if [[ -z "$home" || ! -f "$home/.yerbascore/yerbas.conf" ]]; then
+                echo '  Smartnode: configuration unavailable'
+                continue
+            fi
+            if [[ "$service" != active ]]; then
+                echo '  Smartnode: RPC not checked (service inactive)'
+                continue
+            fi
+            if [[ ! -x "$cli" ]]; then
+                echo '  Smartnode: CLI unavailable'
+                continue
+            fi
+            datadir="$home/.yerbascore"
+            if output="$(timeout 8 runuser -u "$user" -- "$cli" "-datadir=$datadir" smartnode status 2>/dev/null)"; then
+                state="$(jq -r 'if type == "object" then (.state // .status // .result.state // .result.status // "unknown") else "unknown" end | tostring' <<<"$output" 2>/dev/null || true)"
+                if [[ "$state" =~ ^[A-Za-z0-9_[:space:].:-]{1,80}$ ]]; then
+                    printf '  Smartnode: %s\n' "$state"
+                else
+                    echo '  Smartnode: status unavailable'
+                fi
+            else
+                echo '  Smartnode: RPC unavailable or still loading'
+            fi
+            if height="$(timeout 8 runuser -u "$user" -- "$cli" "-datadir=$datadir" getblockcount 2>/dev/null)" && [[ "$height" =~ ^[0-9]+$ ]]; then
+                printf '  Block height: %s\n' "$height"
+            else
+                echo '  Block height: unavailable'
+            fi
+        done < <(sort -u "$users_file")
+    fi
+    echo
+    echo 'Refresh manually: sudo systemctl start yerbas-boot-status.service'
+} >"$temp"
+chmod 0644 "$temp"
+mv -f "$temp" "$report"
+cat "$report"
+BOOT_STATUS_SCRIPT
+    chmod 0755 /usr/local/sbin/yerbas-boot-status
+    cat >/etc/systemd/system/yerbas-boot-status.service <<'BOOT_STATUS_UNIT'
+[Unit]
+Description=Read-only Yerbas Smartnode status report after boot
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/yerbas-boot-status
+TimeoutStartSec=240
+NoNewPrivileges=true
+BOOT_STATUS_UNIT
+    cat >/etc/systemd/system/yerbas-boot-status.timer <<'BOOT_STATUS_TIMER'
+[Unit]
+Description=Report Yerbas Smartnode status shortly after reboot
+[Timer]
+OnBootSec=180s
+Unit=yerbas-boot-status.service
+[Install]
+WantedBy=timers.target
+BOOT_STATUS_TIMER
+    cat >/etc/update-motd.d/90-yerbas-smartnodes <<'BOOT_STATUS_MOTD'
+#!/bin/sh
+report=/run/yerbas-smartnodes/status
+if [ -r "$report" ]; then
+    printf '\n'
+    cat "$report"
+else
+    printf '\nYerbas Smartnode status: boot report pending (approximately 3 minutes after startup).\n'
+fi
+BOOT_STATUS_MOTD
+    chmod 0755 /etc/update-motd.d/90-yerbas-smartnodes
+    systemctl daemon-reload
+    systemctl enable --now yerbas-boot-status.timer
+}
+
 install_service_template() {
     if [[ -f "$SCRIPT_DIR/systemd/yerbasd@.service" ]]; then install -m 0644 "$SCRIPT_DIR/systemd/yerbasd@.service" "$SERVICE_TEMPLATE"; else
         cat >"$SERVICE_TEMPLATE" <<'SERVICE'
@@ -1014,6 +1114,7 @@ main() {
     local installed_release=""
     require_root
     initialize_paths
+    install_boot_status_reporting
     if [[ ! -f "$NETWORK_RESUME_FLAG" && ! -f "$LEGACY_IPV6_RESUME_FLAG" ]]; then : > "$LOG_FILE"; fi
     banner
     detect_platform
