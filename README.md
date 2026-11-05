@@ -79,7 +79,17 @@ Run the installer again:
 sudo ./install.sh
 ```
 
-Existing `yerbas.conf`, BLS keys, wallets, and blockchain data are preserved. When an existing installation is detected, the installer lists existing Smartnode users and asks separately whether to **update existing Smartnodes**, **add additional Smartnode users**, and **update network addresses**. All three default to **No**. The installer first checks the latest compatible Yerbas release and compares it with the active installed release. **If the installed wallet is current, no wallet-update prompt appears.** If it is older or cannot be identified, the installer offers an update; accepting it switches the shared binaries and rolling-restarts existing services one at a time. When adding users requires changing the shared wallet binaries despite declining the update prompt, the installer asks for explicit confirmation before proceeding. Declining that confirmation leaves existing nodes unchanged.
+Existing `yerbas.conf`, BLS keys, wallets, and blockchain data are preserved. When an existing installation is detected, the installer lists its Smartnode users and installed wallet release, checks the latest compatible Yerbas release, then displays one menu:
+
+```text
+1) Add Smartnode
+2) Update Smartnodes
+3) Update/add IPv4 or IPv6 address
+4) Exit (no changes)
+```
+
+Choose one operation; pressing Enter defaults to exit without changes. If the installed wallet release is already current, option 2 is marked `already current` and cannot initiate an update. If a wallet update is selected, shared binaries are changed and existing services rolling-restarted one at a time. Adding a new user can also require changing the shared wallet binaries; in that case the installer asks for explicit consent before touching existing nodes.
+
 
 ## Multiple nodes and ports
 
