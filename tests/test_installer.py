@@ -76,6 +76,31 @@ class InstallerTests(unittest.TestCase):
         cmp "$MANAGER" "$REPO/bin/yerbas-node-manager"
         [[ -x "$MANAGER" ]]''')
 
+    def test_existing_install_displays_installed_wallet_release(self):
+        result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$TEST_DIR/releases/v4.0.0.4"
+        touch "$TEST_DIR/releases/v4.0.0.4/$DAEMON"
+        chmod +x "$TEST_DIR/releases/v4.0.0.4/$DAEMON"
+        ln -s "$TEST_DIR/releases/v4.0.0.4" "$CURRENT_LINK"
+        prompt_yes_no() { return 1; }
+        detect_existing_install
+        [[ "$INSTALLED_RELEASE" == v4.0.0.4 ]]''')
+        self.assertIn(
+            'Currently installed Yerbas wallet release: v4.0.0.4',
+            result.stdout,
+        )
+
+    def test_existing_install_displays_unknown_if_version_unavailable(self):
+        result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        ln -s "$TEST_DIR/missing" "$CURRENT_LINK"
+        prompt_yes_no() { return 1; }
+        detect_existing_install
+        [[ -z "$INSTALLED_RELEASE" ]]''')
+        self.assertIn(
+            'Currently installed Yerbas wallet release: unknown',
+            result.stdout,
+        )
+
     def test_existing_update_prompt_independent_of_adding_users(self):
         result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
         USERS_FILE="$TEST_DIR/users"
