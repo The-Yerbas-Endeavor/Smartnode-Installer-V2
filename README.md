@@ -89,7 +89,7 @@ Existing `yerbas.conf`, BLS keys, wallets, and blockchain data are preserved. Wh
 5) Exit (no changes)
 ```
 
-Choose one operation; pressing Enter defaults to exit without changes. Option 4 displays every existing Smartnode user's systemd service status (active/enabled), its RPC Smartnode state, and block height when available. It is read-only, handles unavailable RPC or stopped services, and returns to the menu without changing nodes. If the installed wallet release is already current, option 2 is marked `already current` and cannot initiate an update. If a wallet update is selected, shared binaries are changed and existing services rolling-restarted one at a time. Adding a new user can also require changing the shared wallet binaries; in that case the installer asks for explicit consent before touching existing nodes.
+Choose one operation; pressing Enter defaults to exit without changes. Option 4 displays every existing Smartnode user's systemd service status (active/enabled), its RPC Smartnode state, and block height when available. It is read-only, handles unavailable RPC or stopped services, and returns to the menu without changing nodes. The installer also prints this status report automatically after a successful fresh installation, wallet update, or new-node addition, including newly created nodes. If the installed wallet release is already current, option 2 is marked `already current` and cannot initiate an update. If a wallet update is selected, shared binaries are changed and existing services rolling-restarted one at a time. Adding a new user can also require changing the shared wallet binaries; in that case the installer asks for explicit consent before touching existing nodes.
 
 
 ## Multiple nodes and ports
