@@ -147,7 +147,309 @@ class InstallerTests(unittest.TestCase):
     def test_unified_menu_current_wallet_cannot_be_updated(self):
         result = self.run_bash('''INSTALLED_RELEASE=v2
         RELEASE_TAG=v2
-        maintenance_menu <<< $'2\\n4'
+        maintenance_menu <<< 
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]
+        [[ "$ADDITIONAL_USERS" == 0 ]]''')
+        self.assertIn('already current', result.stdout)
+
+    def test_unified_menu_status_returns_to_menu_without_changes(self):
+        result = self.run_bash('''INSTALLED_RELEASE=v1
+        RELEASE_TAG=v2
+        EXISTING_USERS=(alice bob)
+        display_smartnode_statuses() { echo "Status checked: ${EXISTING_USERS[*]}"; }
+        maintenance_menu <<< 
+        result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        STATE_DIR="$TEST_DIR/state"
+        mkdir -p "$TEST_DIR/releases/v2" "$STATE_DIR"
+        touch "$TEST_DIR/releases/v2/$DAEMON"
+        chmod +x "$TEST_DIR/releases/v2/$DAEMON"
+        ln -s "$TEST_DIR/releases/v2" "$CURRENT_LINK"
+        echo v1 > "$STATE_DIR/current-version"
+        RELEASE_TAG=v2
+        prompt_yes_no() { echo "Unexpected prompt" >&2; return 99; }
+        prompt_wallet_update_if_needed
+        [[ "$INSTALLED_RELEASE" == v2 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]''')
+        self.assertIn('already current (v2)', result.stdout)
+        self.assertNotIn('Unexpected prompt', result.stderr)
+
+    def test_older_release_asks_before_updating(self):
+        self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$TEST_DIR/releases/v1"
+        touch "$TEST_DIR/releases/v1/$DAEMON"
+        chmod +x "$TEST_DIR/releases/v1/$DAEMON"
+        ln -s "$TEST_DIR/releases/v1" "$CURRENT_LINK"
+        RELEASE_TAG=v2
+        prompt_yes_no() { [[ "$1" == *"Yerbas v2?"* ]] && return 1; return 99; }
+        prompt_wallet_update_if_needed
+        [[ "$INSTALLED_RELEASE" == v1 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]''')
+
+    def test_unknown_release_asks_before_updating(self):
+        self.run_bash('''CURRENT_LINK="$TEST_DIR/missing"
+        RELEASE_TAG=v2
+        prompt_yes_no() { [[ "$1" == *"Yerbas v2?"* ]]; }
+        prompt_wallet_update_if_needed
+        [[ -z "$INSTALLED_RELEASE" ]]
+        [[ "$RUN_WALLET_UPDATE" == 1 ]]''')
+
+    def test_rollback_restores_version_and_target(self):
+        self.run_bash('''STATE_DIR="$TEST_DIR/state"
+        CURRENT_LINK="$TEST_DIR/current"
+        previous="$TEST_DIR/releases/v1"
+        mkdir -p "$STATE_DIR" "$previous" "$TEST_DIR/releases/v2"
+        touch "$previous/$DAEMON" "$previous/$CLI"
+        chmod +x "$previous/$DAEMON" "$previous/$CLI"
+        printf '%s\n' "$previous" > "$STATE_DIR/previous-release"
+        echo v2 > "$STATE_DIR/current-version"
+        ln -s "$TEST_DIR/releases/v2" "$CURRENT_LINK"
+        if rollback_release; then :; else exit 2; fi
+        [[ "$(readlink "$CURRENT_LINK")" == "$previous" ]]
+        [[ "$(cat "$STATE_DIR/current-version")" == v1 ]]
+        [[ "$RELEASE_TAG" == v1 ]]''')
+
+    def test_rollback_rejects_incomplete_release(self):
+        self.run_bash('''STATE_DIR="$TEST_DIR/state"
+        CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$STATE_DIR" "$TEST_DIR/v1"
+        touch "$TEST_DIR/v1/$DAEMON"
+        chmod +x "$TEST_DIR/v1/$DAEMON"
+        echo "$TEST_DIR/v1" > "$STATE_DIR/previous-release"
+        echo v2 > "$STATE_DIR/current-version"
+        if rollback_release; then exit 2; fi
+        [[ ! -e "$CURRENT_LINK" ]]
+        [[ "$(cat "$STATE_DIR/current-version")" == v2 ]]''')
+
+    def test_rollback_reports_link_failure(self):
+        self.run_bash('''STATE_DIR="$TEST_DIR/state"
+        CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$STATE_DIR" "$TEST_DIR/v1"
+        touch "$TEST_DIR/v1/$DAEMON" "$TEST_DIR/v1/$CLI"
+        chmod +x "$TEST_DIR/v1/"*
+        echo "$TEST_DIR/v1" > "$STATE_DIR/previous-release"
+        echo v2 > "$STATE_DIR/current-version"
+        ln() { return 1; }
+        if rollback_release; then exit 2; fi
+        [[ "$(cat "$STATE_DIR/current-version")" == v2 ]]''')
+
+
+if __name__ == '__main__':
+    unittest.main()
+2\\n5'
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]
+        [[ "$ADDITIONAL_USERS" == 0 ]]''')
+        self.assertIn('already current', result.stdout)
+
+    def test_current_release_skips_update_prompt(self):
+        result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        STATE_DIR="$TEST_DIR/state"
+        mkdir -p "$TEST_DIR/releases/v2" "$STATE_DIR"
+        touch "$TEST_DIR/releases/v2/$DAEMON"
+        chmod +x "$TEST_DIR/releases/v2/$DAEMON"
+        ln -s "$TEST_DIR/releases/v2" "$CURRENT_LINK"
+        echo v1 > "$STATE_DIR/current-version"
+        RELEASE_TAG=v2
+        prompt_yes_no() { echo "Unexpected prompt" >&2; return 99; }
+        prompt_wallet_update_if_needed
+        [[ "$INSTALLED_RELEASE" == v2 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]''')
+        self.assertIn('already current (v2)', result.stdout)
+        self.assertNotIn('Unexpected prompt', result.stderr)
+
+    def test_older_release_asks_before_updating(self):
+        self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$TEST_DIR/releases/v1"
+        touch "$TEST_DIR/releases/v1/$DAEMON"
+        chmod +x "$TEST_DIR/releases/v1/$DAEMON"
+        ln -s "$TEST_DIR/releases/v1" "$CURRENT_LINK"
+        RELEASE_TAG=v2
+        prompt_yes_no() { [[ "$1" == *"Yerbas v2?"* ]] && return 1; return 99; }
+        prompt_wallet_update_if_needed
+        [[ "$INSTALLED_RELEASE" == v1 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]''')
+
+    def test_unknown_release_asks_before_updating(self):
+        self.run_bash('''CURRENT_LINK="$TEST_DIR/missing"
+        RELEASE_TAG=v2
+        prompt_yes_no() { [[ "$1" == *"Yerbas v2?"* ]]; }
+        prompt_wallet_update_if_needed
+        [[ -z "$INSTALLED_RELEASE" ]]
+        [[ "$RUN_WALLET_UPDATE" == 1 ]]''')
+
+    def test_rollback_restores_version_and_target(self):
+        self.run_bash('''STATE_DIR="$TEST_DIR/state"
+        CURRENT_LINK="$TEST_DIR/current"
+        previous="$TEST_DIR/releases/v1"
+        mkdir -p "$STATE_DIR" "$previous" "$TEST_DIR/releases/v2"
+        touch "$previous/$DAEMON" "$previous/$CLI"
+        chmod +x "$previous/$DAEMON" "$previous/$CLI"
+        printf '%s\n' "$previous" > "$STATE_DIR/previous-release"
+        echo v2 > "$STATE_DIR/current-version"
+        ln -s "$TEST_DIR/releases/v2" "$CURRENT_LINK"
+        if rollback_release; then :; else exit 2; fi
+        [[ "$(readlink "$CURRENT_LINK")" == "$previous" ]]
+        [[ "$(cat "$STATE_DIR/current-version")" == v1 ]]
+        [[ "$RELEASE_TAG" == v1 ]]''')
+
+    def test_rollback_rejects_incomplete_release(self):
+        self.run_bash('''STATE_DIR="$TEST_DIR/state"
+        CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$STATE_DIR" "$TEST_DIR/v1"
+        touch "$TEST_DIR/v1/$DAEMON"
+        chmod +x "$TEST_DIR/v1/$DAEMON"
+        echo "$TEST_DIR/v1" > "$STATE_DIR/previous-release"
+        echo v2 > "$STATE_DIR/current-version"
+        if rollback_release; then exit 2; fi
+        [[ ! -e "$CURRENT_LINK" ]]
+        [[ "$(cat "$STATE_DIR/current-version")" == v2 ]]''')
+
+    def test_rollback_reports_link_failure(self):
+        self.run_bash('''STATE_DIR="$TEST_DIR/state"
+        CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$STATE_DIR" "$TEST_DIR/v1"
+        touch "$TEST_DIR/v1/$DAEMON" "$TEST_DIR/v1/$CLI"
+        chmod +x "$TEST_DIR/v1/"*
+        echo "$TEST_DIR/v1" > "$STATE_DIR/previous-release"
+        echo v2 > "$STATE_DIR/current-version"
+        ln() { return 1; }
+        if rollback_release; then exit 2; fi
+        [[ "$(cat "$STATE_DIR/current-version")" == v2 ]]''')
+
+
+if __name__ == '__main__':
+    unittest.main()
+4\\n5'
+        [[ "$ADDITIONAL_USERS" == 0 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]
+        [[ "$RUN_NETWORK_UPDATE" == 0 ]]''')
+        self.assertIn('4) Display Current Smartnodes', result.stdout)
+        self.assertIn('5) Exit (no changes)', result.stdout)
+        self.assertIn('Status checked: alice bob', result.stdout)
+
+    def test_status_display_covers_running_and_unavailable_nodes(self):
+        result = self.run_bash('''EXISTING_USERS=(alice bob)
+        CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$TEST_DIR/current" "$TEST_DIR/alice/.yerbascore" "$TEST_DIR/bob/.yerbascore"
+        touch "$TEST_DIR/current/$CLI"
+        chmod +x "$TEST_DIR/current/$CLI"
+        touch "$TEST_DIR/alice/.yerbascore/yerbas.conf" "$TEST_DIR/bob/.yerbascore/yerbas.conf"
+        getent() {
+            case "$2" in
+                alice) printf 'alice:x:1000:1000::%s/alice:/bin/bash\\n' "$TEST_DIR" ;;
+                bob) printf 'bob:x:1001:1001::%s/bob:/bin/bash\\n' "$TEST_DIR" ;;
+            esac
+        }
+        systemctl() {
+            if [[ "$2" == "yerbasd@alice" ]]; then
+                [[ "$1" == is-active ]] && echo active || echo enabled
+            else
+                [[ "$1" == is-active ]] && echo inactive || echo disabled
+            fi
+        }
+        timeout() {
+            if [[ "$*" == *" -u alice "* ]]; then
+                if [[ "$*" == *"smartnode status"* ]]; then
+                    printf '{"state":"READY"}\\n'
+                else
+                    echo 1450000
+                fi
+            else
+                return 1
+            fi
+        }
+        display_smartnode_statuses''')
+        self.assertIn('Smartnode: alice', result.stdout)
+        self.assertIn('Service: active (enabled: enabled)', result.stdout)
+        self.assertIn('Smartnode: READY', result.stdout)
+        self.assertIn('Block height: 1450000', result.stdout)
+        self.assertIn('Smartnode: bob', result.stdout)
+        self.assertIn('Service: inactive (enabled: disabled)', result.stdout)
+        self.assertIn('RPC unavailable', result.stdout)
+
+    def test_status_display_handles_no_nodes(self):
+        result = self.run_bash('''EXISTING_USERS=()
+        display_smartnode_statuses''')
+        self.assertIn('No configured Smartnodes were found.', result.stdout)
+
+    def test_current_release_skips_update_prompt(self):
+        result = self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        STATE_DIR="$TEST_DIR/state"
+        mkdir -p "$TEST_DIR/releases/v2" "$STATE_DIR"
+        touch "$TEST_DIR/releases/v2/$DAEMON"
+        chmod +x "$TEST_DIR/releases/v2/$DAEMON"
+        ln -s "$TEST_DIR/releases/v2" "$CURRENT_LINK"
+        echo v1 > "$STATE_DIR/current-version"
+        RELEASE_TAG=v2
+        prompt_yes_no() { echo "Unexpected prompt" >&2; return 99; }
+        prompt_wallet_update_if_needed
+        [[ "$INSTALLED_RELEASE" == v2 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]''')
+        self.assertIn('already current (v2)', result.stdout)
+        self.assertNotIn('Unexpected prompt', result.stderr)
+
+    def test_older_release_asks_before_updating(self):
+        self.run_bash('''CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$TEST_DIR/releases/v1"
+        touch "$TEST_DIR/releases/v1/$DAEMON"
+        chmod +x "$TEST_DIR/releases/v1/$DAEMON"
+        ln -s "$TEST_DIR/releases/v1" "$CURRENT_LINK"
+        RELEASE_TAG=v2
+        prompt_yes_no() { [[ "$1" == *"Yerbas v2?"* ]] && return 1; return 99; }
+        prompt_wallet_update_if_needed
+        [[ "$INSTALLED_RELEASE" == v1 ]]
+        [[ "$RUN_WALLET_UPDATE" == 0 ]]''')
+
+    def test_unknown_release_asks_before_updating(self):
+        self.run_bash('''CURRENT_LINK="$TEST_DIR/missing"
+        RELEASE_TAG=v2
+        prompt_yes_no() { [[ "$1" == *"Yerbas v2?"* ]]; }
+        prompt_wallet_update_if_needed
+        [[ -z "$INSTALLED_RELEASE" ]]
+        [[ "$RUN_WALLET_UPDATE" == 1 ]]''')
+
+    def test_rollback_restores_version_and_target(self):
+        self.run_bash('''STATE_DIR="$TEST_DIR/state"
+        CURRENT_LINK="$TEST_DIR/current"
+        previous="$TEST_DIR/releases/v1"
+        mkdir -p "$STATE_DIR" "$previous" "$TEST_DIR/releases/v2"
+        touch "$previous/$DAEMON" "$previous/$CLI"
+        chmod +x "$previous/$DAEMON" "$previous/$CLI"
+        printf '%s\n' "$previous" > "$STATE_DIR/previous-release"
+        echo v2 > "$STATE_DIR/current-version"
+        ln -s "$TEST_DIR/releases/v2" "$CURRENT_LINK"
+        if rollback_release; then :; else exit 2; fi
+        [[ "$(readlink "$CURRENT_LINK")" == "$previous" ]]
+        [[ "$(cat "$STATE_DIR/current-version")" == v1 ]]
+        [[ "$RELEASE_TAG" == v1 ]]''')
+
+    def test_rollback_rejects_incomplete_release(self):
+        self.run_bash('''STATE_DIR="$TEST_DIR/state"
+        CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$STATE_DIR" "$TEST_DIR/v1"
+        touch "$TEST_DIR/v1/$DAEMON"
+        chmod +x "$TEST_DIR/v1/$DAEMON"
+        echo "$TEST_DIR/v1" > "$STATE_DIR/previous-release"
+        echo v2 > "$STATE_DIR/current-version"
+        if rollback_release; then exit 2; fi
+        [[ ! -e "$CURRENT_LINK" ]]
+        [[ "$(cat "$STATE_DIR/current-version")" == v2 ]]''')
+
+    def test_rollback_reports_link_failure(self):
+        self.run_bash('''STATE_DIR="$TEST_DIR/state"
+        CURRENT_LINK="$TEST_DIR/current"
+        mkdir -p "$STATE_DIR" "$TEST_DIR/v1"
+        touch "$TEST_DIR/v1/$DAEMON" "$TEST_DIR/v1/$CLI"
+        chmod +x "$TEST_DIR/v1/"*
+        echo "$TEST_DIR/v1" > "$STATE_DIR/previous-release"
+        echo v2 > "$STATE_DIR/current-version"
+        ln() { return 1; }
+        if rollback_release; then exit 2; fi
+        [[ "$(cat "$STATE_DIR/current-version")" == v2 ]]''')
+
+
+if __name__ == '__main__':
+    unittest.main()
+2\\n5'
         [[ "$RUN_WALLET_UPDATE" == 0 ]]
         [[ "$ADDITIONAL_USERS" == 0 ]]''')
         self.assertIn('already current', result.stdout)
