@@ -784,12 +784,19 @@ users_file=/var/lib/yerbas-installer/users
 report_dir=/run/yerbas-smartnodes
 report=$report_dir/status
 cli=/opt/yerbas/current/yerbas-cli
-install -d -m 0755 "$report_dir"
-umask 022
-temp="$(mktemp "$report_dir/.status.XXXXXXXX")"
-trap 'rm -f "$temp"' EXIT
-{
-    printf 'Yerbas Smartnode status after server startup\n'
+mode="${1:-snapshot}"
+case "$mode" in
+    snapshot) rpc_timeout=8 ;;
+    --live) rpc_timeout=2 ;;
+    *) echo "Usage: yerbas-boot-status [--live]" >&2; exit 2 ;;
+esac
+
+generate_report() {
+    if [[ "$mode" == "--live" ]]; then
+        printf 'Yerbas Smartnode status at SSH login\n'
+    else
+        printf 'Yerbas Smartnode status after server startup\n'
+    fi
     printf 'Checked: %s\n' "$(date -Is)"
     printf '%s\n' '--------------------------------------------------'
     if [[ ! -s "$users_file" ]]; then
@@ -814,7 +821,7 @@ trap 'rm -f "$temp"' EXIT
                 continue
             fi
             datadir="$home/.yerbascore"
-            if output="$(timeout 8 runuser -u "$user" -- "$cli" "-datadir=$datadir" smartnode status 2>/dev/null)"; then
+            if output="$(timeout "$rpc_timeout" runuser -u "$user" -- "$cli" "-datadir=$datadir" smartnode status 2>/dev/null)"; then
                 state="$(jq -r 'if type == "object" then (.state // .status // .result.state // .result.status // "unknown") else "unknown" end | tostring' <<<"$output" 2>/dev/null || true)"
                 if [[ "$state" =~ ^[A-Za-z0-9_[:space:].:-]{1,80}$ ]]; then
                     printf '  Smartnode: %s\n' "$state"
@@ -824,7 +831,7 @@ trap 'rm -f "$temp"' EXIT
             else
                 echo '  Smartnode: RPC unavailable or still loading'
             fi
-            if height="$(timeout 8 runuser -u "$user" -- "$cli" "-datadir=$datadir" getblockcount 2>/dev/null)" && [[ "$height" =~ ^[0-9]+$ ]]; then
+            if height="$(timeout "$rpc_timeout" runuser -u "$user" -- "$cli" "-datadir=$datadir" getblockcount 2>/dev/null)" && [[ "$height" =~ ^[0-9]+$ ]]; then
                 printf '  Block height: %s\n' "$height"
             else
                 echo '  Block height: unavailable'
@@ -832,11 +839,24 @@ trap 'rm -f "$temp"' EXIT
         done < <(sort -u "$users_file")
     fi
     echo
-    echo 'Refresh manually: sudo systemctl start yerbas-boot-status.service'
-} >"$temp"
-chmod 0644 "$temp"
-mv -f "$temp" "$report"
-cat "$report"
+    if [[ "$mode" == "snapshot" ]]; then
+        echo 'Refresh manually: sudo systemctl start yerbas-boot-status.service'
+    fi
+}
+
+if [[ "$mode" == "--live" ]]; then
+    # Never update the boot snapshot during login.
+    generate_report
+else
+    install -d -m 0755 "$report_dir"
+    umask 022
+    temp="$(mktemp "$report_dir/.status.XXXXXXXX")"
+    trap 'rm -f "$temp"' EXIT
+    generate_report >"$temp"
+    chmod 0644 "$temp"
+    mv -f "$temp" "$report"
+    cat "$report"
+fi
 BOOT_STATUS_SCRIPT
     chmod 0755 /usr/local/sbin/yerbas-boot-status
     cat >/etc/systemd/system/yerbas-boot-status.service <<'BOOT_STATUS_UNIT'
@@ -862,11 +882,20 @@ BOOT_STATUS_TIMER
     cat >/etc/update-motd.d/90-yerbas-smartnodes <<'BOOT_STATUS_MOTD'
 #!/bin/sh
 report=/run/yerbas-smartnodes/status
+printf '\n'
+# Refresh from the running daemons on every SSH login, but bound the total wait.
+# The status command is read-only and --live never changes the boot snapshot.
+if [ -x /usr/local/sbin/yerbas-boot-status ]; then
+    live="$(timeout 16 /usr/local/sbin/yerbas-boot-status --live 2>/dev/null)" && {
+        printf '%s\n' "$live"
+        exit 0
+    }
+fi
 if [ -r "$report" ]; then
-    printf '\n'
+    printf 'Live Smartnode status unavailable; showing previous boot snapshot:\n'
     cat "$report"
 else
-    printf '\nYerbas Smartnode status: boot report pending (approximately 3 minutes after startup).\n'
+    printf 'Yerbas Smartnode status unavailable (no boot snapshot yet).\n'
 fi
 BOOT_STATUS_MOTD
     chmod 0755 /etc/update-motd.d/90-yerbas-smartnodes
