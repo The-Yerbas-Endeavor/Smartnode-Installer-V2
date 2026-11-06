@@ -45,21 +45,21 @@ class BootStatusTests(unittest.TestCase):
             root = Path(td)
             report_dir = root / "run"
             users_file = root / "users"
-            users_file.write_text("alice\\n")
+            users_file.write_text("alice\n")
             home = root / "alice"
             (home / ".yerbascore").mkdir(parents=True)
-            (home / ".yerbascore" / "yerbas.conf").write_text("port=15420\\n")
+            (home / ".yerbascore" / "yerbas.conf").write_text("port=15420\n")
             mock_bin = root / "bin"
             mock_bin.mkdir()
             cli = root / "yerbas-cli"
-            cli.write_text("#!/bin/sh\\nexit 0\\n")
+            cli.write_text("#!/bin/sh\nexit 0\n")
             cli.chmod(0o755)
             height = root / "height"
-            height.write_text("1155920\\n")
+            height.write_text("1155920\n")
             commands = {
-                "systemctl": "#!/bin/sh\\nif [ \"$1\" = is-active ]; then echo active; else echo enabled; fi\\n",
-                "getent": "#!/bin/sh\\nprintf 'alice:x:1000:1000::%s:/bin/bash\\\\n' \"$FAKE_HOME\"\\n",
-                "runuser": "#!/bin/sh\\ncase \"$*\" in *getblockcount) cat \"$FAKE_HEIGHT\";; *) echo '{\"state\":\"READY\"}';; esac\\n",
+                "systemctl": "#!/bin/sh\nif [ \"$1\" = is-active ]; then echo active; else echo enabled; fi\n",
+                "getent": "#!/bin/sh\nprintf 'alice:x:1000:1000::%s:/bin/bash\\n' \"$FAKE_HOME\"\n",
+                "runuser": "#!/bin/sh\ncase \"$*\" in *getblockcount) cat \"$FAKE_HEIGHT\";; *) echo '{\"state\":\"READY\"}';; esac\n",
             }
             for name, content in commands.items():
                 path = mock_bin / name
@@ -95,7 +95,7 @@ class BootStatusTests(unittest.TestCase):
             cached = (report_dir / "status").read_text()
             self.assertIn("1155920", cached)
 
-            height.write_text("1155921\\n")
+            height.write_text("1155921\n")
             live = subprocess.run(
                 ["bash", str(path), "--live"], env=env,
                 capture_output=True, text=True, timeout=10,
@@ -121,7 +121,8 @@ class BootStatusTests(unittest.TestCase):
         self.assertIn("chmod 0644", reporter)
         self.assertIn("smartnode status", reporter)
         self.assertIn("getblockcount", reporter)
-        self.assertIn("timeout 8", reporter)
+        self.assertIn("snapshot) rpc_timeout=8", reporter)
+        self.assertIn("--live) rpc_timeout=2", reporter)
         self.assertNotIn("systemctl restart", reporter)
 
 
