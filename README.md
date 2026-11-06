@@ -75,7 +75,7 @@ sudo journalctl -u yerbasd@USER -f
 
 The installer registers a read-only systemd timer that creates a status report about **3 minutes after each server boot**. It reports all registered Smartnodes (service active/enabled state, Smartnode readiness when RPC is available, and block height), without restarting or modifying any nodes. A slow-to-start Smartnode may initially show `RPC unavailable or still loading`.
 
-The saved report automatically appears in the login banner on subsequent SSH connections after the report completes. SSH logins before the boot check completes show a short *pending* message; the login banner never waits for RPC.
+On **every SSH login**, the banner requests fresh, read-only Smartnode states and block heights. Each per-node RPC query is limited to two seconds and the complete login refresh has a 16-second timeout, so an unavailable node cannot block SSH indefinitely. If the refresh times out or fails, the banner clearly labels and displays the saved boot report instead of presenting stale data as current. The boot timer still creates its snapshot around three minutes after startup.
 
 ```bash
 sudo journalctl -u yerbas-boot-status.service -b --no-pager
