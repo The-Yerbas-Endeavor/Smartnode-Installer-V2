@@ -102,7 +102,8 @@ Existing `yerbas.conf`, BLS keys, wallets, and blockchain data are preserved. Wh
 4) Display Current Smartnodes' status
 5) Edit Smartnode
 6) Remove Smartnode
-7) Exit (no changes)
+7) Increase swap
+8) Exit (no changes)
 ```
 
 Choose one operation; pressing Enter defaults to exit without changes. Option 4 displays every existing Smartnode user's systemd service status (active/enabled), its RPC Smartnode state, and block height when available. It is read-only, handles unavailable RPC or stopped services, and returns to the menu without changing nodes. The installer also prints this status report automatically after a successful fresh installation, wallet update, or new-node addition, including newly created nodes. If the installed wallet release is already current, option 2 is marked `already current` and cannot initiate an update. If a wallet update is selected, shared binaries are changed and existing services rolling-restarted one at a time. Adding a new user can also require changing the shared wallet binaries; in that case the installer asks for explicit consent before touching existing nodes.
@@ -115,6 +116,12 @@ Choose **5) Edit Smartnode** to select an installed Smartnode user and change it
 The editor validates the requested field, makes a permission-restricted backup of `yerbas.conf`, and requires explicit confirmation before saving. It restarts **only the selected Smartnode** if its service was active, and restores the previous configuration if that restart fails. A stopped Smartnode remains stopped until its next manual or normal start. The editor does not display BLS private keys.
 
 When changing an external IP, make sure it is provisioned on the server and matches the registered ProTx service endpoint. A configuration change alone cannot modify the on-chain ProTx registration.
+
+## Increasing swap on an existing server
+
+Select **7) Increase swap** to display currently active swap and available disk space, then enter the **additional** amount of swap desired in GiB. The installer allocates a new `/swapfile.yerbas-extra-N`, enables it, and persists it in `/etc/fstab`. Existing swapfiles, swap partitions, and ZRAM remain enabled and unchanged. The operation requires confirmation (default No) and leaves at least 1 GiB of free disk space.
+
+To avoid disrupting running Smartnodes, this path never calls `swapoff` on existing swap. If allocation or activation fails, the new file is removed. No Smartnode restart is necessary. The fresh-install swap wizard remains unchanged.
 
 ## Removing a Smartnode
 

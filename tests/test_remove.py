@@ -96,7 +96,7 @@ class RemovalTests(unittest.TestCase):
         [[ "$RUN_WALLET_UPDATE" == 0 ]]
         [[ "$RUN_NETWORK_UPDATE" == 0 ]]''')
         self.assertIn("6) Remove Smartnode", out)
-        self.assertIn("7) Exit (no changes)", out)
+        self.assertIn("8) Exit (no changes)", out)
 
 if __name__ == "__main__":
     unittest.main()
