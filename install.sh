@@ -749,8 +749,8 @@ remove_existing_smartnode() {
 
 increase_swap() {
     local free_bytes current_bytes current_gb add_gb size_bytes
-    local swapfile="" index=1 fstab="/etc/fstab"
-    local prefix="/swapfile.yerbas-extra"
+    local swapfile="" index=1 fstab="${YERBAS_FSTAB:-/etc/fstab}"
+    local prefix="${YERBAS_EXTRA_SWAP_PREFIX:-/swapfile.yerbas-extra}"
     current_bytes="$(swapon --show=SIZE --bytes --noheadings 2>/dev/null | awk '{sum += $1} END {print sum + 0}')"
     current_gb=$(( (current_bytes + 1073741823) / 1073741824 ))
     free_bytes="$(df -B1 --output=avail / | tail -n1 | tr -d ' ')"
