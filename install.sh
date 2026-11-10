@@ -633,6 +633,120 @@ edit_existing_smartnode() {
     unset value
 }
 
+
+smartnode_expected_home() { printf '/home/%s\n' "$1"; }
+
+remove_existing_smartnode() {
+    local choice user home conf mode confirmation expected backup tmp line
+    local i
+    local -a updated_users=()
+    if (( ${#EXISTING_USERS[@]} == 0 )); then
+        info "No installed Smartnodes available to remove."
+        return 0
+    fi
+
+    echo
+    echo "Select Smartnode to remove:"
+    for i in "${!EXISTING_USERS[@]}"; do
+        printf '  %d) %s\n' "$((i + 1))" "${EXISTING_USERS[i]}"
+    done
+    read -r -p "Smartnode number (Enter to cancel): " choice || return 0
+    [[ -n "$choice" ]] || return 0
+    if [[ ! "$choice" =~ ^[1-9][0-9]*$ ]] || (( choice > ${#EXISTING_USERS[@]} )); then
+        warn "Invalid Smartnode selection."
+        return 0
+    fi
+    user="${EXISTING_USERS[choice-1]}"
+    valid_username "$user" || { warn "Invalid Smartnode username."; return 1; }
+    home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
+    if [[ "$home" != "$(smartnode_expected_home "$user")" || ! -d "$home" || -L "$home" ]]; then
+        warn "Unexpected home directory for $user. Refusing removal."
+        return 1
+    fi
+    conf="$home/$CONF_DIR_NAME/$CONF_FILE"
+    if [[ ! -f "$conf" || -L "$conf" ]]; then
+        warn "Expected Smartnode configuration missing or is a symlink. Refusing removal."
+        return 1
+    fi
+    if [[ ! -f "$USERS_FILE" ]] || ! grep -qxF "$user" "$USERS_FILE"; then
+        warn "$user is not registered in managed-users file. Refusing removal."
+        return 1
+    fi
+
+    echo
+    echo "Removing Smartnode: $user"
+    echo "  1) Disable and unregister; keep the Linux account and data"
+    echo "  2) Permanently delete the node, its Linux account and all home data"
+    echo "  3) Cancel"
+    read -r -p "Selection [3]: " mode || return 0
+    case "${mode:-3}" in
+        1)
+            expected="REMOVE $user"
+            backup="$conf.removed.$(date -u +%Y%m%dT%H%M%SZ).$"
+            [[ ! -e "$backup" ]] || { warn "Backup target already exists."; return 1; }
+            ;;
+        2) expected="DELETE $user"; backup="" ;;
+        3) return 0 ;;
+        *) warn "Invalid removal option."; return 0 ;;
+    esac
+
+    warn "Only $user will be affected; other Smartnodes and shared Yerbas binaries are untouched."
+    if [[ "$mode" == 2 ]]; then
+        warn "PERMANENT: /home/$user, its BLS key, wallet and blockchain data, and Linux user will be deleted."
+        warn "Back up any BLS key required for on-chain ProTx separately before proceeding."
+    else
+        info "Blockchain data and account stay intact; config is renamed to avoid rediscovery."
+    fi
+    read -r -p "Type '$expected' to confirm: " confirmation || return 0
+    if [[ "$confirmation" != "$expected" ]]; then
+        info "Removal cancelled."
+        return 0
+    fi
+
+    if ! systemctl disable --now "yerbasd@$user.service"; then
+        warn "Could not disable/stop yerbasd@$user. Removal aborted."
+        return 1
+    fi
+    if systemctl is-active --quiet "yerbasd@$user.service"; then
+        warn "Service is still running. Removal aborted."
+        return 1
+    fi
+
+    if [[ "$mode" == 1 ]]; then
+        if ! mv -n -- "$conf" "$backup"; then
+            warn "Unable to preserve config; registration remains unchanged."
+            return 1
+        fi
+        info "Preserved configuration: $backup"
+    else
+        if ! userdel -r "$user"; then
+            warn "Linux account removal failed; inspect its home before retrying."
+            return 1
+        fi
+    fi
+
+    tmp="$(mktemp "$STATE_DIR/.users.XXXXXXXX")" || { warn "Cannot update users registry."; return 1; }
+    chmod 0600 "$tmp"
+    grep -vxF "$user" "$USERS_FILE" >"$tmp" || true
+    if ! mv -f -- "$tmp" "$USERS_FILE"; then
+        rm -f "$tmp"
+        warn "Cannot save users registry; manual reconciliation required."
+        return 1
+    fi
+
+    updated_users=()
+    for line in "${EXISTING_USERS[@]}"; do
+        [[ "$line" == "$user" ]] || updated_users+=("$line")
+    done
+    EXISTING_USERS=("${updated_users[@]}")
+    updated_users=()
+    for line in "${CONFIGURED_USERS[@]}"; do
+        [[ "$line" == "$user" ]] || updated_users+=("$line")
+    done
+    CONFIGURED_USERS=("${updated_users[@]}")
+    info "Smartnode $user removed from management. Other nodes unchanged."
+}
+
 maintenance_menu() {
     local choice
     ADDITIONAL_USERS=0
@@ -654,10 +768,11 @@ maintenance_menu() {
     echo "  3) Update/add IPv4 or IPv6 address"
     echo "  4) Display Current Smartnodes' status"
     echo "  5) Edit Smartnode"
-    echo "  6) Exit (no changes)"
+    echo "  6) Remove Smartnode"
+    echo "  7) Exit (no changes)"
     while true; do
-        read -r -p "Selection [6]: " choice
-        choice="${choice:-6}"
+        read -r -p "Selection [7]: " choice
+        choice="${choice:-7}"
         case "$choice" in
             1) ADDITIONAL_USERS=1; break ;;
             2)
@@ -671,8 +786,9 @@ maintenance_menu() {
             3) RUN_NETWORK_UPDATE=1; break ;;
             4) display_smartnode_statuses ;;
             5) edit_existing_smartnode ;;
-            6) info "No maintenance changes selected."; break ;;
-            *) echo "Enter 1, 2, 3, 4, 5, or 6." ;;
+            6) remove_existing_smartnode ;;
+            7) info "No maintenance changes selected."; break ;;
+            *) echo "Enter 1, 2, 3, 4, 5, 6, or 7." ;;
         esac
     done
 }
