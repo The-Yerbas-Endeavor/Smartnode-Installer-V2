@@ -668,9 +668,12 @@ remove_existing_smartnode() {
         warn "Expected Smartnode configuration missing or is a symlink. Refusing removal."
         return 1
     fi
+    # Installed nodes can be discovered from /home/*/.yerbascore/yerbas.conf
+    # even when older installations never populated users. Do not require a
+    # registry entry for a node already verified by discovery and home checks.
     if [[ ! -f "$USERS_FILE" ]] || ! grep -qxF "$user" "$USERS_FILE"; then
-        warn "$user is not registered in managed-users file. Refusing removal."
-        return 1
+        warn "$user was discovered from its configuration, but is absent from the managed-users file."
+        warn "Removal will still require selecting this node and typing its exact confirmation."
     fi
 
     echo
@@ -727,7 +730,9 @@ remove_existing_smartnode() {
 
     tmp="$(mktemp "$STATE_DIR/.users.XXXXXXXX")" || { warn "Cannot update users registry."; return 1; }
     chmod 0600 "$tmp"
-    grep -vxF "$user" "$USERS_FILE" >"$tmp" || true
+    if [[ -f "$USERS_FILE" ]]; then
+        grep -vxF "$user" "$USERS_FILE" >"$tmp" || true
+    fi
     if ! mv -f -- "$tmp" "$USERS_FILE"; then
         rm -f "$tmp"
         warn "Cannot save users registry; manual reconciliation required."
