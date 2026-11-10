@@ -747,6 +747,59 @@ remove_existing_smartnode() {
     info "Smartnode $user removed from management. Other nodes unchanged."
 }
 
+increase_swap() {
+    local free_bytes current_bytes current_gb add_gb size_bytes
+    local swapfile="" index=1 fstab="/etc/fstab"
+    local prefix="/swapfile.yerbas-extra"
+    current_bytes="$(swapon --show=SIZE --bytes --noheadings 2>/dev/null | awk '{sum += $1} END {print sum + 0}')"
+    current_gb=$(( (current_bytes + 1073741823) / 1073741824 ))
+    free_bytes="$(df -B1 --output=avail / | tail -n1 | tr -d ' ')"
+    [[ "$free_bytes" =~ ^[0-9]+$ ]] || { warn "Cannot determine available disk space."; return 1; }
+    echo
+    echo "Current active swap: $current_gb GiB"
+    echo "Available disk space: $((free_bytes / 1073741824)) GiB"
+    echo "Add swap without disabling or resizing any existing swap."
+    read -r -p "Additional swap in GiB (Enter to cancel): " add_gb || return 0
+    [[ -n "$add_gb" ]] || return 0
+    if [[ ! "$add_gb" =~ ^[1-9][0-9]{0,3}$ ]]; then
+        warn "Enter a positive whole number of GiB (maximum 9999)."
+        return 0
+    fi
+    size_bytes=$((add_gb * 1073741824))
+    if (( size_bytes + 1073741824 > free_bytes )); then
+        warn "Insufficient disk space: at least 1 GiB must remain free."
+        return 0
+    fi
+    while :; do
+        swapfile="$prefix-$index"
+        [[ ! -e "$swapfile" && ! -L "$swapfile" ]] && break
+        index=$((index + 1))
+        (( index < 1000 )) || { warn "No available managed swapfile path."; return 1; }
+    done
+    echo "New swapfile: $swapfile ($add_gb GiB)"
+    if ! prompt_yes_no "Create and enable this additional swapfile?" "N"; then
+        info "Swap increase cancelled."
+        return 0
+    fi
+    # Exclusive creation: never overwrite existing swap.
+    if ! (umask 077; set -o noclobber; : >"$swapfile"); then
+        warn "Cannot create swapfile safely."
+        return 1
+    fi
+    if ! fallocate -l "$add_gb"G "$swapfile" || ! chmod 0600 "$swapfile" || ! mkswap "$swapfile" >/dev/null || ! swapon "$swapfile"; then
+        rm -f -- "$swapfile"
+        warn "Swap creation/activation failed; existing swap was untouched."
+        return 1
+    fi
+    if ! printf '%s none swap sw 0 0\n' "$swapfile" >>"$fstab"; then
+        swapoff "$swapfile" || true
+        rm -f -- "$swapfile"
+        warn "Could not save swap persistence; new swap was rolled back."
+        return 1
+    fi
+    info "Added $add_gb GiB of swap at $swapfile without disabling existing swap."
+}
+
 maintenance_menu() {
     local choice
     ADDITIONAL_USERS=0
@@ -769,10 +822,11 @@ maintenance_menu() {
     echo "  4) Display Current Smartnodes' status"
     echo "  5) Edit Smartnode"
     echo "  6) Remove Smartnode"
-    echo "  7) Exit (no changes)"
+    echo "  7) Increase swap"
+    echo "  8) Exit (no changes)"
     while true; do
-        read -r -p "Selection [7]: " choice
-        choice="${choice:-7}"
+        read -r -p "Selection [8]: " choice
+        choice="${choice:-8}"
         case "$choice" in
             1) ADDITIONAL_USERS=1; break ;;
             2)
@@ -787,8 +841,9 @@ maintenance_menu() {
             4) display_smartnode_statuses ;;
             5) edit_existing_smartnode ;;
             6) remove_existing_smartnode ;;
-            7) info "No maintenance changes selected."; break ;;
-            *) echo "Enter 1, 2, 3, 4, 5, 6, or 7." ;;
+            7) increase_swap ;;
+            8) info "No maintenance changes selected."; break ;;
+            *) echo "Enter 1, 2, 3, 4, 5, 6, 7, or 8." ;;
         esac
     done
 }
