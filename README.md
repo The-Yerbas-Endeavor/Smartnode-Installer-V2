@@ -101,7 +101,8 @@ Existing `yerbas.conf`, BLS keys, wallets, and blockchain data are preserved. Wh
 3) Update/add IPv4 or IPv6 address
 4) Display Current Smartnodes' status
 5) Edit Smartnode
-6) Exit (no changes)
+6) Remove Smartnode
+7) Exit (no changes)
 ```
 
 Choose one operation; pressing Enter defaults to exit without changes. Option 4 displays every existing Smartnode user's systemd service status (active/enabled), its RPC Smartnode state, and block height when available. It is read-only, handles unavailable RPC or stopped services, and returns to the menu without changing nodes. The installer also prints this status report automatically after a successful fresh installation, wallet update, or new-node addition, including newly created nodes. If the installed wallet release is already current, option 2 is marked `already current` and cannot initiate an update. If a wallet update is selected, shared binaries are changed and existing services rolling-restarted one at a time. Adding a new user can also require changing the shared wallet binaries; in that case the installer asks for explicit consent before touching existing nodes.
@@ -114,6 +115,17 @@ Choose **5) Edit Smartnode** to select an installed Smartnode user and change it
 The editor validates the requested field, makes a permission-restricted backup of `yerbas.conf`, and requires explicit confirmation before saving. It restarts **only the selected Smartnode** if its service was active, and restores the previous configuration if that restart fails. A stopped Smartnode remains stopped until its next manual or normal start. The editor does not display BLS private keys.
 
 When changing an external IP, make sure it is provisioned on the server and matches the registered ProTx service endpoint. A configuration change alone cannot modify the on-chain ProTx registration.
+
+## Removing a Smartnode
+
+Choose **6) Remove Smartnode** and select exactly one installed node. Two removal modes are offered:
+
+- **Disable and unregister (recommended):** Stop and disable only that node, remove it from the installer-managed users list, and rename its `yerbas.conf` to a timestamped `yerbas.conf.removed.*` file. The Linux account, BLS configuration backup, blockchain and other data remain in place for recovery. The renamed config prevents the node from being automatically rediscovered by the installer.
+- **Permanently delete:** Stop and disable only that node, then remove its dedicated Linux account and complete `/home/USERNAME` directory (including BLS key, blockchain and wallet data) with `userdel -r`. This is irreversible without an external backup.
+
+Both modes require typing **REMOVE USERNAME** or **DELETE USERNAME** exactly. Only registered managed nodes whose home directory is exactly `/home/USERNAME` are eligible. Failure to stop the service aborts removal. The other Smartnodes, shared Yerbas binaries, common service template and P2P firewall rules are not modified.
+
+Removing the server installation does **not** revoke, deregister, or update any on-chain ProTx registration or collateral. Preserve the operator key if it will be reused.
 
 ## Multiple nodes and ports
 
