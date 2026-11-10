@@ -25,7 +25,7 @@ systemctl() {
     if [[ "$1" == is-active ]]; then return 3; fi
     return 0
 }
-userdel() { echo "$*" >"$TEST_DIR/deletion"; }
+userdel() { echo "$*" >"$TEST_DIR/deletion"; rm -rf -- "$TEST_DIR/ip6"; }
 remove_existing_smartnode <<INPUT
 2
 """ + mode + """
