@@ -634,6 +634,8 @@ edit_existing_smartnode() {
 }
 
 
+smartnode_expected_home() { printf '/home/%s\n' "$1"; }
+
 remove_existing_smartnode() {
     local choice user home conf mode confirmation expected backup tmp line
     local i
@@ -657,7 +659,7 @@ remove_existing_smartnode() {
     user="${EXISTING_USERS[choice-1]}"
     valid_username "$user" || { warn "Invalid Smartnode username."; return 1; }
     home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
-    if [[ "$home" != "/home/$user" || ! -d "$home" || -L "$home" ]]; then
+    if [[ "$home" != "$(smartnode_expected_home "$user")" || ! -d "$home" || -L "$home" ]]; then
         warn "Unexpected home directory for $user. Refusing removal."
         return 1
     fi
