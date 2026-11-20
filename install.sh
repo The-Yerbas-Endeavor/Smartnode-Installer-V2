@@ -866,6 +866,7 @@ configure_smartnode_pruning() {
     tmp="$(mktemp "$data/.yerbas-prune.XXXXXXXX")" || return 1
     backup="$(mktemp "$conf.prune-backup.XXXXXXXX")" || { rm -f -- "$tmp"; return 1; }
     cp -p -- "$conf" "$backup" || { rm -f -- "$tmp" "$backup"; return 1; }
+    chmod 0600 "$backup" || { rm -f -- "$tmp" "$backup"; return 1; }
     awk '!/^[[:space:]]*prune[[:space:]]*=/' "$conf" > "$tmp"
     printf 'prune=%s\n' "$amount" >> "$tmp"
     chown --reference="$conf" "$tmp"
