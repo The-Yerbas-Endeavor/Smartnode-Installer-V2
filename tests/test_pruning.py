@@ -84,20 +84,11 @@ ls "$TEST_DIR/alice/.yerbascore/yerbas.conf.prune-backup."* >/dev/null
 ''')
         self.assertIn('Node remains stopped', result.stdout)
 
+
     def test_minimum_prune_target_1024_is_accepted(self):
         result = self.run_case(r'''
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< 
-        self.run_case(r'''
-configure_smartnode_pruning <<< ''
-grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
-grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
-''')
-
-
-if __name__ == "__main__":
-    unittest.main()
-1\n1024'
+configure_smartnode_pruning <<< "$(printf '1\n1024')"
 grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'txindex=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
@@ -107,17 +98,7 @@ grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
     def test_below_minimum_prune_target_is_rejected(self):
         result = self.run_case(r'''
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< 
-        self.run_case(r'''
-configure_smartnode_pruning <<< ''
-grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
-grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
-''')
-
-
-if __name__ == "__main__":
-    unittest.main()
-1\n1023'
+configure_smartnode_pruning <<< "$(printf '1\n1023')"
 grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
 ''')
@@ -126,17 +107,7 @@ grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
     def test_default_prune_target_is_1024(self):
         result = self.run_case(r'''
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< 
-        self.run_case(r'''
-configure_smartnode_pruning <<< ''
-grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
-grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
-''')
-
-
-if __name__ == "__main__":
-    unittest.main()
-1\n'
+configure_smartnode_pruning <<< "$(printf '1\n')"
 grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
         self.assertIn('Configured txindex=0 and prune=1024', result.stdout)
