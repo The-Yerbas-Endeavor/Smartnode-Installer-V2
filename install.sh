@@ -861,10 +861,10 @@ configure_smartnode_pruning() {
     [[ "$active" != active ]] || { warn "Stop $user first; no services changed."; return 0; }
     current="$(sed -n 's/^[[:space:]]*prune[[:space:]]*=[[:space:]]*//p' "$conf" | tail -n1)"
     [[ -z "$current" || "$current" == 0 ]] || { warn "Pruning already configured."; return 0; }
-    read -r -p "Target MiB [2048]: " amount || return 0
-    amount="${amount:-2048}"
-    if [[ ! "$amount" =~ ^[1-9][0-9]*$ ]] || (( ${#amount} > 8 )) || (( 10#$amount < 2048 )); then
-        warn "Minimum target 2048 MiB; maximum eight digits."
+    read -r -p "Target MiB [1024]: " amount || return 0
+    amount="${amount:-1024}"
+    if [[ ! "$amount" =~ ^[1-9][0-9]*$ ]] || (( ${#amount} > 8 )) || (( 10#$amount < 1024 )); then
+        warn "Minimum target 1024 MiB; maximum eight digits."
         return 0
     fi
     prompt_yes_no "Set prune=$amount for $user only?" "N" || { info "Cancelled."; return 0; }
