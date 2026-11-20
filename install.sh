@@ -805,6 +805,76 @@ increase_swap() {
     info "Added $add_gb GiB of swap at $swapfile without disabling existing swap."
 }
 
+
+# Existing synced 4.0.1.4 nodes must not prune before evidence migration.
+prune_history_present() {
+    local data="$1" dir
+    for dir in blocks chainstate indexes evodb llmq; do
+        if [[ -d "$data/$dir" ]] && [[ -n "$(find "$data/$dir" -mindepth 1 -print -quit 2>/dev/null)" ]]; then return 0; fi
+    done
+    compgen -G "$data/blk*.dat" >/dev/null || compgen -G "$data/rev*.dat" >/dev/null
+}
+
+configure_smartnode_pruning() {
+    local choice user home data conf amount active tmp backup current i
+    echo "Blockchain pruning — experimental, per Smartnode"
+    echo "This option will not delete blocks or restart any node."
+    if (( ${#EXISTING_USERS[@]} == 0 )); then info "No Smartnodes found."; return 0; fi
+    for i in "${!EXISTING_USERS[@]}"; do
+        user="${EXISTING_USERS[i]}"
+        home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
+        current="unknown"
+        if [[ -n "$home" && -f "$home/$CONF_DIR_NAME/$CONF_FILE" ]]; then
+            current="$(sed -n 's/^[[:space:]]*prune[[:space:]]*=[[:space:]]*//p' "$home/$CONF_DIR_NAME/$CONF_FILE" | tail -n1)"
+            current="${current:-0}"
+        fi
+        printf '  %d) %s (prune=%s)\n' "$((i+1))" "$user" "$current"
+    done
+    read -r -p "Smartnode to configure (Enter to cancel): " choice || return 0
+    [[ -n "$choice" ]] || return 0
+    if [[ ! "$choice" =~ ^[1-9][0-9]*$ ]] || (( choice > ${#EXISTING_USERS[@]} )); then warn "Invalid selection."; return 0; fi
+    user="${EXISTING_USERS[choice-1]}"
+    home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
+    [[ -n "$home" ]] || { warn "Missing Smartnode home."; return 0; }
+    data="$home/$CONF_DIR_NAME"
+    conf="$data/$CONF_FILE"
+    [[ -f "$conf" && ! -L "$conf" ]] || { warn "Missing regular config; refusing."; return 0; }
+    if [[ "${INSTALLED_RELEASE#v}" != 4.0.1.6 ]]; then
+        warn "Installed ${INSTALLED_RELEASE:-unknown} is not eligible; 4.0.1.6 required."
+        return 0
+    fi
+    if prune_history_present "$data"; then
+        warn "Historical chain data exists for $user; backfill unverified. Refusing to prune."
+        return 0
+    fi
+    active="$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)"
+    [[ "$active" != active ]] || { warn "Stop $user first; no services changed."; return 0; }
+    current="$(sed -n 's/^[[:space:]]*prune[[:space:]]*=[[:space:]]*//p' "$conf" | tail -n1)"
+    [[ -z "$current" || "$current" == 0 ]] || { warn "Pruning already configured."; return 0; }
+    read -r -p "Target MiB [2048]: " amount || return 0
+    amount="${amount:-2048}"
+    if [[ ! "$amount" =~ ^[1-9][0-9]*$ ]] || (( ${#amount} > 8 )) || (( 10#$amount < 2048 )); then
+        warn "Minimum target 2048 MiB; maximum eight digits."
+        return 0
+    fi
+    prompt_yes_no "Set prune=$amount for $user only?" "N" || { info "Cancelled."; return 0; }
+    if prune_history_present "$data" || [[ "$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)" == active ]]; then
+        warn "Node state changed; refusing."
+        return 0
+    fi
+    umask 077
+    tmp="$(mktemp "$data/.yerbas-prune.XXXXXXXX")" || return 1
+    backup="$(mktemp "$conf.prune-backup.XXXXXXXX")" || { rm -f -- "$tmp"; return 1; }
+    cp -p -- "$conf" "$backup" || { rm -f -- "$tmp" "$backup"; return 1; }
+    chmod 0600 "$backup" || { rm -f -- "$tmp" "$backup"; return 1; }
+    awk '!/^[[:space:]]*prune[[:space:]]*=/' "$conf" > "$tmp"
+    printf 'prune=%s\n' "$amount" >> "$tmp"
+    chown --reference="$conf" "$tmp"
+    chmod 0600 "$tmp"
+    mv -f -- "$tmp" "$conf"
+    info "Configured prune=$amount for $user. Backup: $backup. Node remains stopped."
+}
+
 maintenance_menu() {
     local choice
     ADDITIONAL_USERS=0
@@ -828,10 +898,11 @@ maintenance_menu() {
     echo "  5) Edit Smartnode"
     echo "  6) Remove Smartnode"
     echo "  7) Increase swap"
-    echo "  8) Exit (no changes)"
+    echo "  8) Configure blockchain pruning (experimental)"
+    echo "  9) Exit (no changes)"
     while true; do
-        read -r -p "Selection [8]: " choice
-        choice="${choice:-8}"
+        read -r -p "Selection [9]: " choice
+        choice="${choice:-9}"
         case "$choice" in
             1) ADDITIONAL_USERS=1; break ;;
             2)
@@ -847,8 +918,9 @@ maintenance_menu() {
             5) edit_existing_smartnode ;;
             6) remove_existing_smartnode ;;
             7) increase_swap ;;
-            8) info "No maintenance changes selected."; break ;;
-            *) echo "Enter 1, 2, 3, 4, 5, 6, 7, or 8." ;;
+            8) configure_smartnode_pruning ;;
+            9) info "No maintenance changes selected."; break ;;
+            *) echo "Enter 1 through 9." ;;
         esac
     done
 }
