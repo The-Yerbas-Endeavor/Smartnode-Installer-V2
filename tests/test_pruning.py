@@ -107,7 +107,7 @@ grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
     def test_default_prune_target_is_1024(self):
         result = self.run_case(r'''
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< "$(printf '1\n')"
+configure_smartnode_pruning <<< "$(printf '1\n\nx')"
 grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
         self.assertIn('Configured txindex=0 and prune=1024', result.stdout)
