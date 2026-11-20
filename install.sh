@@ -848,7 +848,10 @@ configure_smartnode_pruning() {
         warn "Existing blockchain detected. Yerbas Core 4.0.1.6 will backfill and verify all historical evidence BEFORE deleting blocks."
         warn "A missing block, invalid proof, interrupted scan, or database error must abort pruning."
         warn "Back up the complete data directory and operator keys independently before attempting migration."
-        read -r -p "Type MIGRATE $user to authorize archival migration (Enter to cancel): " confirmation || return 0
+        if ! read -r -p "Type MIGRATE $user to authorize archival migration (Enter to cancel): " confirmation; then
+            info "Archival migration cancelled; no changes made."
+            return 0
+        fi
         if [[ "$confirmation" != "MIGRATE $user" ]]; then
             info "Archival migration cancelled; no changes made."
             return 0
