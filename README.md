@@ -118,17 +118,21 @@ The editor validates the requested field, makes a permission-restricted backup o
 
 When changing an external IP, make sure it is provisioned on the server and matches the registered ProTx service endpoint. A configuration change alone cannot modify the on-chain ProTx registration.
 
-## Experimental blockchain pruning
+## Experimental blockchain pruning and 4.0.1.4 migration
 
-The installer offers **8) Configure blockchain pruning** for a selected Smartnode, without automatically changing other nodes. It displays each detected Smartnode's current `prune` configuration. The option is intentionally restrictive for the 4.0.1.6 pilot:
+The installer offers **8) Configure blockchain pruning** for one selected Smartnode and displays its existing `prune` setting. The installed shared wallet must be **4.0.1.6**; the menu does **not** install or switch wallet binaries.
 
-- The installed shared wallet must be **4.0.1.6**. The installer does not silently download or switch binaries to development builds.
-- The selected Smartnode must be **stopped** and its blockchain database must be **empty**. The installer refuses to enable pruning when it detects existing block, chainstate, index, quorum, or evolution database history.
-- The requested target must be at least **2048 MiB** and is written to only that user's `yerbas.conf`. The previous configuration is backed up with restricted permissions.
-- The installer **does not start/restart nodes, delete blockchain files, reset ProTx identities, or touch wallets or BLS keys** through this option.
-- **Existing 4.0.1.4 Smartnodes (including node5) cannot safely turn on pruning yet.** They need historical quorum and governance evidence backfilled and verified by Yerbas Core before any old blocks are discarded. An installer setting alone cannot implement that migration.
+- Stop only the selected Smartnode before using this option. Other Smartnodes and shared binaries are not changed or restarted.
+- On a **fresh empty chain directory**, the installer can set a minimum 2048 MiB target.
+- On an **existing full blockchain**, the installer requires an explicit `MIGRATE USERNAME` confirmation. **Back up the complete node data directory, BLS operator keys, and wallet data first.** If Core cannot read and verify all required historical evidence, its migration must abort *before deleting old blocks*. Do not assume that a passing CI build proves this behavior on mainnet.
+- The installer writes both `txindex=0` and `prune=TARGET` to the selected `yerbas.conf`, preserving unrelated settings and creating a permission-restricted configuration backup.
+- Pruning is **not** a reversible toggle once historical files have been deleted. Disabling pruning afterward requires a documented archival rebuild, not just editing `prune=0`.
+- The installer never deletes block files, changes operator identity, or starts/restarts services through this menu. Historical evidence scanning happens in Yerbas Core at next startup, and can be lengthy.
+- A node already missing historical blocks may be unable to complete migration. Do not attempt manual deletion or bypass Core's refusal.
 
-For fresh pilot nodes, enable pruning *before first synchronization* after installing the supported binary. Pruning affects block and undo file targets, not total disk usage. A successful CI build does not prove Smartnode quorum operation; test on a dedicated node first.
+**node5 rollout:** The two existing Smartnodes share Yerbas binaries. Upgrade both to a tested 4.0.1.6 binary with pruning disabled first, verify normal operation, then migrate **one stopped Smartnode at a time**, leaving the other as an unpruned control. Do not use the installer’s latest-release update option to obtain an unpublished development binary. Validate Core's mainnet migration using a backup or disposable copy before exposing production operator identities.
+
+Pruning targets block/undo files only, not chainstate, quorum indexes or retained evidence databases.
 
 ## Increasing swap on an existing server
 
