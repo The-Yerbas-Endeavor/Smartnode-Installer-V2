@@ -55,39 +55,7 @@ mkdir -p "$TEST_DIR/alice/.yerbascore/blocks"
 touch "$TEST_DIR/alice/.yerbascore/blocks/blk00000.dat"
 echo 'txindex=1' >> "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< 
-    def test_running_node_cannot_be_changed(self):
-        result = self.run_case(r'''
-systemctl() { echo active; }
-configure_smartnode_pruning <<< '1'
-grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
-''')
-        self.assertIn('Stop alice first', result.stdout)
-
-    def test_fresh_stopped_node_changes_only_selected_configuration(self):
-        result = self.run_case(r'''
-prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< $'1\n2048'
-grep -qx 'prune=2048' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
-grep -qx 'txindex=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
-grep -qx 'rpcpassword=secret' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
-grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
-test "$(stat -c %a "$TEST_DIR/alice/.yerbascore/yerbas.conf")" == 600
-ls "$TEST_DIR/alice/.yerbascore/yerbas.conf.prune-backup."* >/dev/null
-''')
-        self.assertIn('Node remains stopped', result.stdout)
-
-    def test_cancel_does_not_modify_nodes(self):
-        self.run_case(r'''
-configure_smartnode_pruning <<< ''
-grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
-grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
-''')
-
-
-if __name__ == "__main__":
-    unittest.main()
-1\\nMIGRATE alice\\n2048'
+configure_smartnode_pruning <<< $'1\nMIGRATE alice\n2048'
 grep -qx 'prune=2048' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'txindex=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ! grep -qx 'txindex=1' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
@@ -108,6 +76,7 @@ grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 prompt_yes_no() { return 0; }
 configure_smartnode_pruning <<< $'1\n2048'
 grep -qx 'prune=2048' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+grep -qx 'txindex=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'rpcpassword=secret' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
 test "$(stat -c %a "$TEST_DIR/alice/.yerbascore/yerbas.conf")" == 600
