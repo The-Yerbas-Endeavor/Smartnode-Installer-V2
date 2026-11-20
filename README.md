@@ -123,7 +123,7 @@ When changing an external IP, make sure it is provisioned on the server and matc
 The installer offers **8) Configure blockchain pruning** for one selected Smartnode and displays its existing `prune` setting. The installed shared wallet must be **4.0.1.6**; the menu does **not** install or switch wallet binaries.
 
 - Stop only the selected Smartnode before using this option. Other Smartnodes and shared binaries are not changed or restarted.
-- On a **fresh empty chain directory**, the installer can set a minimum 2048 MiB target.
+- On a **fresh empty chain directory**, the installer defaults to a **1024 MiB** target and rejects values below **1024 MiB** (Yerbas Core's current minimum is 945 MiB). With an existing 1.7 GiB block directory, this provides room to observe pruning once eligibility checks pass.
 - On an **existing full blockchain**, the installer requires an explicit `MIGRATE USERNAME` confirmation. **Back up the complete node data directory, BLS operator keys, and wallet data first.** If Core cannot read and verify all required historical evidence, its migration must abort *before deleting old blocks*. Do not assume that a passing CI build proves this behavior on mainnet.
 - The installer writes both `txindex=0` and `prune=TARGET` to the selected `yerbas.conf`, preserving unrelated settings and creating a permission-restricted configuration backup.
 - Pruning is **not** a reversible toggle once historical files have been deleted. Disabling pruning afterward requires a documented archival rebuild, not just editing `prune=0`.
