@@ -25,7 +25,7 @@ class EditSmartnodeTests(unittest.TestCase):
         INSTALLED_RELEASE=v1
         RELEASE_TAG=v2
         edit_existing_smartnode() { echo "Editor selected"; }
-        maintenance_menu <<< $'5\\n8'
+        maintenance_menu <<< $'5\\n9'
         [[ "$ADDITIONAL_USERS" == 0 ]]
         [[ "$RUN_WALLET_UPDATE" == 0 ]]
         [[ "$RUN_NETWORK_UPDATE" == 0 ]]''')
