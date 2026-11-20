@@ -816,7 +816,7 @@ prune_history_present() {
 }
 
 configure_smartnode_pruning() {
-    local choice user home data conf amount active tmp backup current i
+    local choice user home data conf amount active tmp backup current i has_history=0 confirmation
     echo "Blockchain pruning — experimental, per Smartnode"
     echo "This option will not delete blocks or restart any node."
     if (( ${#EXISTING_USERS[@]} == 0 )); then info "No Smartnodes found."; return 0; fi
@@ -844,8 +844,18 @@ configure_smartnode_pruning() {
         return 0
     fi
     if prune_history_present "$data"; then
-        warn "Historical chain data exists for $user; backfill unverified. Refusing to prune."
-        return 0
+        has_history=1
+        warn "Existing blockchain detected. Yerbas Core 4.0.1.6 will backfill and verify all historical evidence BEFORE deleting blocks."
+        warn "A missing block, invalid proof, interrupted scan, or database error must abort pruning."
+        warn "Back up the complete data directory and operator keys independently before attempting migration."
+        if ! read -r -p "Type MIGRATE $user to authorize archival migration (Enter to cancel): " confirmation; then
+            info "Archival migration cancelled; no changes made."
+            return 0
+        fi
+        if [[ "$confirmation" != "MIGRATE $user" ]]; then
+            info "Archival migration cancelled; no changes made."
+            return 0
+        fi
     fi
     active="$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)"
     [[ "$active" != active ]] || { warn "Stop $user first; no services changed."; return 0; }
@@ -858,8 +868,16 @@ configure_smartnode_pruning() {
         return 0
     fi
     prompt_yes_no "Set prune=$amount for $user only?" "N" || { info "Cancelled."; return 0; }
-    if prune_history_present "$data" || [[ "$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)" == active ]]; then
-        warn "Node state changed; refusing."
+    if [[ "$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)" == active ]]; then
+        warn "Node became active during confirmation; refusing."
+        return 0
+    fi
+    if (( has_history == 0 )) && prune_history_present "$data"; then
+        warn "Historical data appeared during confirmation; refusing."
+        return 0
+    fi
+    if (( has_history == 1 )) && ! prune_history_present "$data"; then
+        warn "Historical data disappeared during confirmation; refusing."
         return 0
     fi
     umask 077
@@ -867,12 +885,13 @@ configure_smartnode_pruning() {
     backup="$(mktemp "$conf.prune-backup.XXXXXXXX")" || { rm -f -- "$tmp"; return 1; }
     cp -p -- "$conf" "$backup" || { rm -f -- "$tmp" "$backup"; return 1; }
     chmod 0600 "$backup" || { rm -f -- "$tmp" "$backup"; return 1; }
-    awk '!/^[[:space:]]*prune[[:space:]]*=/' "$conf" > "$tmp"
-    printf 'prune=%s\n' "$amount" >> "$tmp"
+    awk '!/^[[:space:]]*(prune|txindex)[[:space:]]*=/' "$conf" > "$tmp"
+    printf 'txindex=0\nprune=%s\n' "$amount" >> "$tmp"
     chown --reference="$conf" "$tmp"
     chmod 0600 "$tmp"
     mv -f -- "$tmp" "$conf"
-    info "Configured prune=$amount for $user. Backup: $backup. Node remains stopped."
+    info "Configured txindex=0 and prune=$amount for $user. Backup: $backup."
+    info "Node remains stopped. On first 4.0.1.6 startup, Core MUST finish verified historical evidence migration before pruning."
 }
 
 maintenance_menu() {

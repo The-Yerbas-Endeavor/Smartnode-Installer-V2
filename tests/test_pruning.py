@@ -40,14 +40,28 @@ grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
         self.assertIn('not eligible', result.stdout)
 
-    def test_existing_history_blocks_enable_even_on_416(self):
+    def test_existing_history_requires_explicit_confirmation(self):
         result = self.run_case(r'''
 mkdir -p "$TEST_DIR/alice/.yerbascore/blocks"
 touch "$TEST_DIR/alice/.yerbascore/blocks/blk00000.dat"
 configure_smartnode_pruning <<< '1'
 grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
-        self.assertIn('Historical chain data exists', result.stdout)
+        self.assertIn('Archival migration cancelled', result.stdout)
+
+    def test_existing_archive_can_configure_selected_node_only(self):
+        result = self.run_case(r'''
+mkdir -p "$TEST_DIR/alice/.yerbascore/blocks"
+touch "$TEST_DIR/alice/.yerbascore/blocks/blk00000.dat"
+echo 'txindex=1' >> "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< $'1\nMIGRATE alice\n2048'
+grep -qx 'prune=2048' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+grep -qx 'txindex=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+! grep -qx 'txindex=1' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
+''')
+        self.assertIn('Node remains stopped', result.stdout)
 
     def test_running_node_cannot_be_changed(self):
         result = self.run_case(r'''
@@ -62,6 +76,7 @@ grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 prompt_yes_no() { return 0; }
 configure_smartnode_pruning <<< $'1\n2048'
 grep -qx 'prune=2048' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+grep -qx 'txindex=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'rpcpassword=secret' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
 test "$(stat -c %a "$TEST_DIR/alice/.yerbascore/yerbas.conf")" == 600
