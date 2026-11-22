@@ -856,23 +856,29 @@ configure_smartnode_pruning() {
         warn "Installed ${INSTALLED_RELEASE:-unknown} is not eligible; a 4.0.1.6 build is required."
         return 0
     fi
+    current="$(sed -n 's/^[[:space:]]*prune[[:space:]]*=[[:space:]]*//p' "$conf" | tail -n1)"
+    current="${current:-0}"
+    [[ "$current" =~ ^[0-9]{1,8}$ ]] || { warn "Invalid current pruning setting; refusing."; return 0; }
     if prune_history_present "$data"; then
         has_history=1
-        warn "Existing blockchain detected. Yerbas Core 4.0.1.6 will backfill and verify all historical evidence BEFORE deleting blocks."
-        warn "A missing block, invalid proof, interrupted scan, or database error must abort pruning."
-        warn "Back up the complete data directory and operator keys independently before attempting migration."
-        if ! read -r -p "Type MIGRATE $user to authorize archival migration (Enter to cancel): " confirmation; then
-            info "Archival migration cancelled; no changes made."
-            return 0
-        fi
-        if [[ "$confirmation" != "MIGRATE $user" ]]; then
-            info "Archival migration cancelled; no changes made."
-            return 0
+        if [[ "$current" == 0 ]]; then
+            warn "Existing archival blockchain detected. Core must verify historical evidence before first pruning."
+            warn "Back up blockchain and operator keys before starting migration."
+            if ! read -r -p "Type MIGRATE $user to authorize archival migration (Enter to cancel): " confirmation ||
+                [[ "$confirmation" != "MIGRATE $user" ]]; then
+                info "Archival migration cancelled; no changes made."
+                return 0
+            fi
+        else
+            warn "Existing pruned node: changing the target retains pruning and does not restore deleted blocks."
+            if ! read -r -p "Type RESIZE $user to authorize changing its pruning target (Enter to cancel): " confirmation ||
+                [[ "$confirmation" != "RESIZE $user" ]]; then
+                info "Prune target update cancelled; no changes made."
+                return 0
+            fi
         fi
     fi
     active="$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)"
-    current="$(sed -n 's/^[[:space:]]*prune[[:space:]]*=[[:space:]]*//p' "$conf" | tail -n1)"
-    [[ -z "$current" || "$current" == 0 ]] || { warn "Pruning already configured."; return 0; }
     if ! core_min="$(core_prune_minimum_mib)" || [[ ! "$core_min" =~ ^[1-9][0-9]{0,7}$ ]]; then
         warn "Could not verify installed Core's pruning minimum; refusing to change configuration."
         return 0
@@ -888,6 +894,10 @@ configure_smartnode_pruning() {
         fi
         warn "Target unsupported or invalid. Installed Core minimum is ${core_min} MiB; enter a supported value or q to cancel."
     done
+    if [[ "$amount" == "$current" ]]; then
+        info "Target unchanged (prune=$current); no service or configuration changed."
+        return 0
+    fi
     prompt_yes_no "Set prune=$amount for $user only?" "N" || { info "Cancelled."; return 0; }
     # Stop only the selected instance after all configuration decisions have been
     # made; do not interrupt other Smartnodes or restart this node implicitly.
