@@ -179,6 +179,39 @@ grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
         self.assertIn("Could not verify installed Core", result.stdout)
 
+    def test_existing_pruned_node_can_resize_to_256(self):
+        result = self.run_case(r'''
+sed -i 's/prune=0/prune=1024/' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+mkdir -p "$TEST_DIR/alice/.yerbascore/blocks"
+touch "$TEST_DIR/alice/.yerbascore/blocks/blk00000.dat"
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\nRESIZE alice\n256')"
+grep -qx 'prune=256' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
+''')
+        self.assertIn('Configured txindex=0 and prune=256', result.stdout)
+
+    def test_existing_pruned_node_requires_resize_confirmation(self):
+        result = self.run_case(r'''
+sed -i 's/prune=0/prune=1024/' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+mkdir -p "$TEST_DIR/alice/.yerbascore/blocks"
+touch "$TEST_DIR/alice/.yerbascore/blocks/blk00000.dat"
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\nMIGRATE alice\n256')"
+grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+''')
+        self.assertIn('Prune target update cancelled', result.stdout)
+
+    def test_current_target_is_noop(self):
+        result = self.run_case(r'''
+sed -i 's/prune=0/prune=256/' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\n256')"
+grep -qx 'prune=256' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+test "$(find "$TEST_DIR/alice/.yerbascore" -name '*prune-backup*' | wc -l)" -eq 0
+''')
+        self.assertIn('Target unchanged', result.stdout)
+
     def test_cancel_does_not_modify_nodes(self):
         self.run_case(r'''
 configure_smartnode_pruning <<< ''
