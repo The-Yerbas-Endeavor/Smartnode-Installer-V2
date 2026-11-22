@@ -63,13 +63,51 @@ grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
 ''')
         self.assertIn('Node remains stopped', result.stdout)
 
-    def test_running_node_cannot_be_changed(self):
+    def test_running_node_declined_stop_preserves_service_and_config(self):
         result = self.run_case(r'''
-systemctl() { echo active; }
-configure_smartnode_pruning <<< '1'
+systemctl() {
+  if [[ "$1" == is-active ]]; then echo active; return 0; fi
+  echo "unexpected service command" >&2; return 1
+}
+prompt_yes_no() {
+  case "$1" in
+    "Set prune="*) return 0 ;;
+    "Stop alice now"*) return 1 ;;
+    *) return 1 ;;
+  esac
+}
+configure_smartnode_pruning <<< "$(printf '1\n1024')"
 grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
-        self.assertIn('Stop alice first', result.stdout)
+        self.assertIn('No service or configuration changed', result.stdout)
+
+    def test_running_node_stops_only_selected_after_approval(self):
+        result = self.run_case(r'''
+systemctl() {
+  if [[ "$1" == is-active ]]; then
+    if [[ "$2" == "yerbasd@alice" && ! -f "$TEST_DIR/alice-stopped" ]]; then echo active; else echo inactive; fi
+    return 0
+  fi
+  if [[ "$1" == stop && "$2" == "yerbasd@alice" ]]; then touch "$TEST_DIR/alice-stopped"; return 0; fi
+  return 1
+}
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\n1024')"
+test -f "$TEST_DIR/alice-stopped"
+grep -qx 'txindex=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
+''')
+        self.assertIn('Start it manually', result.stdout)
+
+    def test_supported_commit_suffix_can_configure_pruning(self):
+        result = self.run_case(r'''
+INSTALLED_RELEASE=v4.0.1.6-a46bf72
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\n1024')"
+grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+''')
+        self.assertIn('Configured txindex=0 and prune=1024', result.stdout)
 
     def test_fresh_stopped_node_changes_only_selected_configuration(self):
         result = self.run_case(r'''
