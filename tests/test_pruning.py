@@ -23,6 +23,8 @@ printf 'rpcpassword=other\nprune=0\n' > "$TEST_DIR/bob/.yerbascore/yerbas.conf"
 getent() { printf '%s:x:1000:1000::%s/%s:/bin/bash\n' "$2" "$TEST_DIR" "$2"; }
 systemctl() { if [[ "$1" == is-active ]]; then echo inactive; else return 1; fi; }
 chown() { return 0; }
+# Mock the installed 256-capable build for safe, unprivileged tests.
+core_prune_minimum_mib() { printf '256\n'; }
 '''
             result = subprocess.run(
                 ["bash", "-c", setup + body],
@@ -76,7 +78,7 @@ prompt_yes_no() {
     *) return 1 ;;
   esac
 }
-configure_smartnode_pruning <<< "$(printf '1\n1024')"
+configure_smartnode_pruning <<< "$(printf '1\n256')"
 grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
         self.assertIn('No service or configuration changed', result.stdout)
@@ -92,10 +94,10 @@ systemctl() {
   return 1
 }
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< "$(printf '1\n1024')"
+configure_smartnode_pruning <<< "$(printf '1\n256')"
 test -f "$TEST_DIR/alice-stopped"
 grep -qx 'txindex=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
-grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+grep -qx 'prune=256' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
 ''')
         self.assertIn('Start it manually', result.stdout)
@@ -104,10 +106,10 @@ grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
         result = self.run_case(r'''
 INSTALLED_RELEASE=v4.0.1.6-a46bf72
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< "$(printf '1\n1024')"
-grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+configure_smartnode_pruning <<< "$(printf '1\n256')"
+grep -qx 'prune=256' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
-        self.assertIn('Configured txindex=0 and prune=1024', result.stdout)
+        self.assertIn('Configured txindex=0 and prune=256', result.stdout)
 
     def test_fresh_stopped_node_changes_only_selected_configuration(self):
         result = self.run_case(r'''
@@ -123,32 +125,92 @@ ls "$TEST_DIR/alice/.yerbascore/yerbas.conf.prune-backup."* >/dev/null
         self.assertIn('Node remains stopped', result.stdout)
 
 
-    def test_minimum_prune_target_1024_is_accepted(self):
+    def test_minimum_prune_target_256_is_accepted(self):
         result = self.run_case(r'''
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< "$(printf '1\n1024')"
-grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+configure_smartnode_pruning <<< "$(printf '1\n256')"
+grep -qx 'prune=256' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'txindex=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
 ''')
-        self.assertIn('Configured txindex=0 and prune=1024', result.stdout)
+        self.assertIn('Configured txindex=0 and prune=256', result.stdout)
 
     def test_below_minimum_prune_target_is_rejected(self):
         result = self.run_case(r'''
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< "$(printf '1\n1023')"
+configure_smartnode_pruning <<< "$(printf '1\n255')"
 grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
 ''')
-        self.assertIn('Minimum target 1024 MiB', result.stdout)
+        self.assertIn('Installed Core minimum is 256 MiB', result.stdout)
 
-    def test_default_prune_target_is_1024(self):
+    def test_default_prune_target_is_256(self):
         result = self.run_case(r'''
 prompt_yes_no() { return 0; }
 configure_smartnode_pruning <<< "$(printf '1\n\nx')"
+grep -qx 'prune=256' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+''')
+        self.assertIn('Configured txindex=0 and prune=256', result.stdout)
+
+    def test_installed_old_core_rejects_256_then_accepts_1024(self):
+        result = self.run_case(r'''
+core_prune_minimum_mib() { printf '945\n'; }
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\n256\n1024')"
 grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
-        self.assertIn('Configured txindex=0 and prune=1024', result.stdout)
+        self.assertIn('Installed Core minimum is 945 MiB', result.stdout)
+
+    def test_old_core_can_cancel_without_changes(self):
+        result = self.run_case(r'''
+core_prune_minimum_mib() { printf '945\n'; }
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\n\nq')"
+grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+''')
+        self.assertIn('Cancelled', result.stdout)
+
+    def test_unverifiable_core_refuses_changes(self):
+        result = self.run_case(r'''
+core_prune_minimum_mib() { return 1; }
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\n256')"
+grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+''')
+        self.assertIn("Could not verify installed Core", result.stdout)
+
+    def test_existing_pruned_node_can_resize_to_256(self):
+        result = self.run_case(r'''
+sed -i 's/prune=0/prune=1024/' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+mkdir -p "$TEST_DIR/alice/.yerbascore/blocks"
+touch "$TEST_DIR/alice/.yerbascore/blocks/blk00000.dat"
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\nRESIZE alice\n256')"
+grep -qx 'prune=256' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
+''')
+        self.assertIn('Configured txindex=0 and prune=256', result.stdout)
+
+    def test_existing_pruned_node_requires_resize_confirmation(self):
+        result = self.run_case(r'''
+sed -i 's/prune=0/prune=1024/' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+mkdir -p "$TEST_DIR/alice/.yerbascore/blocks"
+touch "$TEST_DIR/alice/.yerbascore/blocks/blk00000.dat"
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\nMIGRATE alice\n256')"
+grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+''')
+        self.assertIn('Prune target update cancelled', result.stdout)
+
+    def test_current_target_is_noop(self):
+        result = self.run_case(r'''
+sed -i 's/prune=0/prune=256/' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\n256')"
+grep -qx 'prune=256' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+test "$(find "$TEST_DIR/alice/.yerbascore" -name '*prune-backup*' | wc -l)" -eq 0
+''')
+        self.assertIn('Target unchanged', result.stdout)
 
     def test_cancel_does_not_modify_nodes(self):
         self.run_case(r'''
