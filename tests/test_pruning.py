@@ -24,7 +24,7 @@ getent() { printf '%s:x:1000:1000::%s/%s:/bin/bash\n' "$2" "$TEST_DIR" "$2"; }
 systemctl() { if [[ "$1" == is-active ]]; then echo inactive; else return 1; fi; }
 chown() { return 0; }
 # Mock the installed 256-capable build for safe, unprivileged tests.
-core_prune_minimum_mib() { printf '256\\n'; }
+core_prune_minimum_mib() { printf '256\n'; }
 '''
             result = subprocess.run(
                 ["bash", "-c", setup + body],
@@ -154,18 +154,18 @@ grep -qx 'prune=256' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 
     def test_installed_old_core_rejects_256_then_accepts_1024(self):
         result = self.run_case(r'''
-core_prune_minimum_mib() { printf '945\\n'; }
+core_prune_minimum_mib() { printf '945\n'; }
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< "$(printf '1\\n256\\n1024')"
+configure_smartnode_pruning <<< "$(printf '1\n256\n1024')"
 grep -qx 'prune=1024' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
         self.assertIn('Installed Core minimum is 945 MiB', result.stdout)
 
     def test_old_core_can_cancel_without_changes(self):
         result = self.run_case(r'''
-core_prune_minimum_mib() { printf '945\\n'; }
+core_prune_minimum_mib() { printf '945\n'; }
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< "$(printf '1\\n\\nq')"
+configure_smartnode_pruning <<< "$(printf '1\n\nq')"
 grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
         self.assertIn('Cancelled', result.stdout)
@@ -174,7 +174,7 @@ grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
         result = self.run_case(r'''
 core_prune_minimum_mib() { return 1; }
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< "$(printf '1\\n256')"
+configure_smartnode_pruning <<< "$(printf '1\n256')"
 grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
         self.assertIn("Could not verify installed Core", result.stdout)
