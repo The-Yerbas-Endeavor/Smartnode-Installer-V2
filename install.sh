@@ -818,7 +818,7 @@ prune_history_present() {
 configure_smartnode_pruning() {
     local choice user home data conf amount active tmp backup current i has_history=0 confirmation
     echo "Blockchain pruning — experimental, per Smartnode"
-    echo "This option will not delete blocks or restart any node."
+    echo "Only the selected node may be stopped with confirmation; no node restarts automatically."
     if (( ${#EXISTING_USERS[@]} == 0 )); then info "No Smartnodes found."; return 0; fi
     for i in "${!EXISTING_USERS[@]}"; do
         user="${EXISTING_USERS[i]}"
@@ -839,8 +839,8 @@ configure_smartnode_pruning() {
     data="$home/$CONF_DIR_NAME"
     conf="$data/$CONF_FILE"
     [[ -f "$conf" && ! -L "$conf" ]] || { warn "Missing regular config; refusing."; return 0; }
-    if [[ "${INSTALLED_RELEASE#v}" != 4.0.1.6 ]]; then
-        warn "Installed ${INSTALLED_RELEASE:-unknown} is not eligible; 4.0.1.6 required."
+    if [[ ! "${INSTALLED_RELEASE#v}" =~ ^4[.]0[.]1[.]6($|[-+]) ]]; then
+        warn "Installed ${INSTALLED_RELEASE:-unknown} is not eligible; a 4.0.1.6 build is required."
         return 0
     fi
     if prune_history_present "$data"; then
@@ -858,7 +858,6 @@ configure_smartnode_pruning() {
         fi
     fi
     active="$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)"
-    [[ "$active" != active ]] || { warn "Stop $user first; no services changed."; return 0; }
     current="$(sed -n 's/^[[:space:]]*prune[[:space:]]*=[[:space:]]*//p' "$conf" | tail -n1)"
     [[ -z "$current" || "$current" == 0 ]] || { warn "Pruning already configured."; return 0; }
     read -r -p "Target MiB [1024]: " amount || return 0
@@ -868,8 +867,21 @@ configure_smartnode_pruning() {
         return 0
     fi
     prompt_yes_no "Set prune=$amount for $user only?" "N" || { info "Cancelled."; return 0; }
+    # Stop only the selected instance after all configuration decisions have been
+    # made; do not interrupt other Smartnodes or restart this node implicitly.
     if [[ "$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)" == active ]]; then
-        warn "Node became active during confirmation; refusing."
+        warn "$user is running. Only this Smartnode will be stopped; other Smartnodes stay online."
+        if ! prompt_yes_no "Stop $user now to configure pruning? It will remain stopped afterward." "N"; then
+            info "Cancelled. No service or configuration changed."
+            return 0
+        fi
+        if ! systemctl stop "yerbasd@$user"; then
+            warn "Could not stop $user; configuration unchanged."
+            return 0
+        fi
+    fi
+    if [[ "$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)" == active ]] || pgrep -u "$user" -x yerbasd >/dev/null 2>&1; then
+        warn "$user is still running or restarting; configuration unchanged."
         return 0
     fi
     if (( has_history == 0 )) && prune_history_present "$data"; then
@@ -891,7 +903,8 @@ configure_smartnode_pruning() {
     chmod 0600 "$tmp"
     mv -f -- "$tmp" "$conf"
     info "Configured txindex=0 and prune=$amount for $user. Backup: $backup."
-    info "Node remains stopped. On first 4.0.1.6 startup, Core MUST finish verified historical evidence migration before pruning."
+    info "Node remains stopped. Start it manually with: systemctl start yerbasd@$user"
+    info "At first startup, Core MUST finish verified historical evidence migration before pruning; do not interrupt or delete block files."
 }
 
 maintenance_menu() {
