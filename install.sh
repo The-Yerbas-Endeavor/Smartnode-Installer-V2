@@ -815,8 +815,21 @@ prune_history_present() {
     compgen -G "$data/blk*.dat" >/dev/null || compgen -G "$data/rev*.dat" >/dev/null
 }
 
+# Query the installed Core binary instead of assuming an experimental release
+# supports a smaller pruning target. Fail closed if its help is unavailable.
+core_prune_minimum_mib() {
+    local help_text
+    [[ -x "$CURRENT_LINK/yerbasd" ]] || return 1
+    help_text="$("$CURRENT_LINK/yerbasd" -help 2>/dev/null)" || return 1
+    if [[ "$help_text" =~ \>([0-9]+)[[:space:]]*= ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    return 1
+}
+
 configure_smartnode_pruning() {
-    local choice user home data conf amount active tmp backup current i has_history=0 confirmation
+    local choice user home data conf amount active tmp backup current i has_history=0 confirmation core_min
     echo "Blockchain pruning — experimental, per Smartnode"
     echo "Only the selected node may be stopped with confirmation; no node restarts automatically."
     if (( ${#EXISTING_USERS[@]} == 0 )); then info "No Smartnodes found."; return 0; fi
@@ -860,12 +873,21 @@ configure_smartnode_pruning() {
     active="$(systemctl is-active "yerbasd@$user" 2>/dev/null || true)"
     current="$(sed -n 's/^[[:space:]]*prune[[:space:]]*=[[:space:]]*//p' "$conf" | tail -n1)"
     [[ -z "$current" || "$current" == 0 ]] || { warn "Pruning already configured."; return 0; }
-    read -r -p "Target MiB [1024]: " amount || return 0
-    amount="${amount:-1024}"
-    if [[ ! "$amount" =~ ^[1-9][0-9]*$ ]] || (( ${#amount} > 8 )) || (( 10#$amount < 1024 )); then
-        warn "Minimum target 1024 MiB; maximum eight digits."
+    if ! core_min="$(core_prune_minimum_mib)" || [[ ! "$core_min" =~ ^[1-9][0-9]{0,7}$ ]]; then
+        warn "Could not verify installed Core's pruning minimum; refusing to change configuration."
         return 0
     fi
+    echo "Pruning target controls blk/rev files only, not index, chainstate, or evidence."
+    echo "Installed Core minimum: ${core_min} MiB; requested default: 256 MiB."
+    while true; do
+        read -r -p "Target MiB [256] (Enter accepts default, q cancels): " amount || return 0
+        [[ "$amount" == q || "$amount" == Q ]] && { info "Cancelled."; return 0; }
+        amount="${amount:-256}"
+        if [[ "$amount" =~ ^[1-9][0-9]{0,7}$ ]] && (( 10#$amount >= 10#$core_min )); then
+            break
+        fi
+        warn "Target unsupported or invalid. Installed Core minimum is ${core_min} MiB; enter a supported value or q to cancel."
+    done
     prompt_yes_no "Set prune=$amount for $user only?" "N" || { info "Cancelled."; return 0; }
     # Stop only the selected instance after all configuration decisions have been
     # made; do not interrupt other Smartnodes or restart this node implicitly.
