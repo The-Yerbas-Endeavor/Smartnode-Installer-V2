@@ -996,6 +996,89 @@ configure_smartnode_pruning() {
     info "At first startup, Core MUST finish verified historical evidence migration before pruning; do not interrupt or delete block files."
 }
 
+# Choose an already staged Core binary for only one systemd Smartnode instance.
+# Existing overrides are never overwritten; services are never auto-started.
+configure_smartnode_core_release() {
+    local choice user target version current_binary current_version dropdir dropin tmp confirmation i service
+    local -a releases=()
+    echo "Select staged Yerbas Core release for one Smartnode"
+    for i in "${!EXISTING_USERS[@]}"; do
+        printf '  %d) %s\n' "$((i+1))" "${EXISTING_USERS[i]}"
+    done
+    read -r -p "Smartnode (Enter cancels): " choice || return 0
+    [[ -n "$choice" ]] || return 0
+    if [[ ! "$choice" =~ ^[1-9][0-9]*$ ]] || (( choice > ${#EXISTING_USERS[@]} )); then
+        warn "Invalid selection."; return 0
+    fi
+    user="${EXISTING_USERS[choice-1]}"
+    current_binary="$(node_core_binary "$user")" || { warn "Cannot verify current binary."; return 0; }
+    current_version="$(node_core_version "$current_binary")" || { warn "Cannot verify Core version."; return 0; }
+    dropdir="/etc/systemd/system/yerbasd@$user.service.d"
+    dropin="$dropdir/override.conf"
+    if [[ -e "$dropin" || -L "$dropin" ]]; then
+        warn "Existing override.conf for $user is preserved; refusing to overwrite."
+        return 0
+    fi
+    for target in "$RELEASES_DIR"/*; do
+        [[ -d "$target" && ! -L "$target" && -x "$target/yerbasd" && -x "$target/yerbas-cli" ]] || continue
+        [[ "$(readlink -f -- "$target")" == "$target" ]] || continue
+        [[ "$(stat -c %u -- "$target")" == 0 ]] || continue
+        node_core_version "$target/yerbasd" >/dev/null || continue
+        releases+=("$target")
+    done
+    if (( ${#releases[@]} == 0 )); then warn "No staged Core releases found."; return 0; fi
+    echo "Current $user Core: $current_version"
+    for i in "${!releases[@]}"; do
+        target="${releases[i]}"
+        printf '  %d) %s (%s)\n' "$((i+1))" "${target##*/}" "$(node_core_version "$target/yerbasd")"
+    done
+    read -r -p "Release (Enter cancels): " choice || return 0
+    [[ -n "$choice" ]] || return 0
+    if [[ ! "$choice" =~ ^[1-9][0-9]*$ ]] || (( choice > ${#releases[@]} )); then
+        warn "Invalid release selection."; return 0
+    fi
+    target="${releases[choice-1]}"
+    version="$(node_core_version "$target/yerbasd")" || return 0
+    if [[ "$version" != "$current_version" &&
+          "$(printf '%s\n' "$version" "$current_version" | LC_ALL=C sort -V | head -n1)" == "$version" ]]; then
+        warn "Downgrade refused: $current_version -> $version."; return 0
+    fi
+    [[ "$target/yerbasd" != "$current_binary" ]] || { info "Already using that release."; return 0; }
+    echo "Only $user will be stopped. Other nodes and $CURRENT_LINK stay unchanged."
+    if ! read -r -p "Type SWITCH $user to proceed: " confirmation ||
+       [[ "$confirmation" != "SWITCH $user" ]]; then
+        info "Cancelled."; return 0
+    fi
+    service="yerbasd@$user.service"
+    if [[ "$(systemctl is-active "$service" 2>/dev/null || true)" == active ]]; then
+        systemctl stop "$service" || { warn "Stop failed; no change."; return 0; }
+    fi
+    if [[ "$(systemctl is-active "$service" 2>/dev/null || true)" == active ]] ||
+        pgrep -u "$user" -x yerbasd >/dev/null 2>&1; then
+        warn "Node still running; no change."; return 0
+    fi
+    if [[ -e "$dropin" || -L "$dropin" || ! -x "$target/yerbasd" || ! -x "$target/yerbas-cli" ]]; then
+        warn "Release or override changed; no change."; return 0
+    fi
+    install -d -m 0755 "$dropdir"
+    tmp="$(mktemp "$dropdir/.override.XXXXXXXX")" || return 1
+    {
+        printf '[Service]\nWorkingDirectory=%s\n' "$target"
+        printf 'ExecStart=\nExecStart=%s/yerbasd -daemon -datadir=/home/%s/.yerbascore\n' "$target" "$user"
+        printf 'ExecStop=\nExecStop=%s/yerbas-cli -datadir=/home/%s/.yerbascore stop\n' "$target" "$user"
+    } > "$tmp"
+    chmod 0644 "$tmp"
+    if [[ -e "$dropin" || -L "$dropin" ]]; then rm -f "$tmp"; warn "Override appeared; refusing."; return 0; fi
+    mv -- "$tmp" "$dropin"
+    systemctl daemon-reload
+    if [[ "$(node_core_binary "$user" 2>/dev/null || true)" != "$target/yerbasd" ]]; then
+        warn "Effective executable mismatch; $user remains stopped."; return 1
+    fi
+    info "$user assigned Core $version and remains stopped for inspection."
+    info "Inspect: systemctl cat $service"
+    info "Start manually: systemctl start $service"
+}
+
 release_is_older_than_installed() {
     local installed_version latest_version
     # Restrict comparisons to known four-part Yerbas versions. Unknown labels
@@ -1034,10 +1117,11 @@ maintenance_menu() {
     echo "  6) Remove Smartnode"
     echo "  7) Increase swap"
     echo "  8) Configure blockchain pruning (experimental)"
-    echo "  9) Exit (no changes)"
+    echo "  9) Select staged Core release for one Smartnode"
+    echo "  10) Exit (no changes)"
     while true; do
-        read -r -p "Selection [9]: " choice
-        choice="${choice:-9}"
+        read -r -p "Selection [10]: " choice
+        choice="${choice:-10}"
         case "$choice" in
             1) ADDITIONAL_USERS=1; break ;;
             2)
@@ -1058,8 +1142,9 @@ maintenance_menu() {
             6) remove_existing_smartnode ;;
             7) increase_swap ;;
             8) configure_smartnode_pruning ;;
-            9) info "No maintenance changes selected."; break ;;
-            *) echo "Enter 1 through 9." ;;
+            9) configure_smartnode_core_release ;;
+            10) info "No maintenance changes selected."; break ;;
+            *) echo "Enter 1 through 10." ;;
         esac
     done
 }
