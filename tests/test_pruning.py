@@ -26,7 +26,11 @@ chown() { return 0; }
 # Mock per-instance service binaries. Global INSTALLED_RELEASE remains a shared
 # release label for other installer paths, but must not authorize pruning.
 node_core_binary() { printf '/opt/yerbas/releases/test-%s/yerbasd\n' "$1"; }
-node_core_version() { printf '%s\n' "${NODE_CORE_VERSION:-$INSTALLED_RELEASE}"; }
+node_core_version() {
+    local version="${NODE_CORE_VERSION:-$INSTALLED_RELEASE}"
+    [[ "$version" =~ ^v?([0-9]+[.][0-9]+[.][0-9]+[.][0-9]+)($|[-+]) ]] || return 1
+    printf '%s\n' "${BASH_REMATCH[1]}"
+}
 core_prune_minimum_mib() { printf '256\n'; }
 '''
             result = subprocess.run(
