@@ -50,7 +50,7 @@ grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 INSTALLED_RELEASE=4.0.1.4
 NODE_CORE_VERSION=4.0.1.6
 prompt_yes_no() { return 0; }
-configure_smartnode_pruning <<< "$(printf '1\\n256')"
+configure_smartnode_pruning <<< "$(printf '1\n256')"
 grep -qx 'prune=256' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
 ''')
