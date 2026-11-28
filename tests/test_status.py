@@ -29,6 +29,7 @@ class StatusTests(unittest.TestCase):
         self.assertIn("Smartnode: new", out)
         self.assertIn("Service: inactive", out)
         self.assertIn("configuration unavailable", out)
+        self.assertIn("Pruning: unavailable (configuration missing)", out)
 
     def test_menu_status_defaults_to_existing_users(self):
         out = self.run_bash('''EXISTING_USERS=(old)
@@ -63,6 +64,7 @@ class StatusTests(unittest.TestCase):
     def test_config_and_runtime_can_differ(self):
         out = self.blockchain_status('{"blocks":42,"pruned":false,"initialblockdownload":false}')
         self.assertIn("Configured prune target (global): 256 MiB", out)
+        self.assertIn("Pruning: disabled (configured: 256 MiB target)", out)
         self.assertIn("Pruned (RPC mode): No", out)
         self.assertIn("Prune height: not applicable", out)
         self.assertIn("Initial block download: No", out)
@@ -72,12 +74,14 @@ class StatusTests(unittest.TestCase):
     def test_pruned_snapshot_and_zero_height(self):
         out = self.blockchain_status('{"blocks":1200,"pruned":true,"pruneheight":0,"initialblockdownload":true}')
         self.assertIn("Block height: 1200", out)
+        self.assertIn("Pruning: enabled (configured: 256 MiB target; prune height: 0)", out)
         self.assertIn("Pruned (RPC mode): Yes", out)
         self.assertIn("Prune height: 0", out)
         self.assertIn("Initial block download: Yes", out)
 
     def test_missing_fields_do_not_imply_false(self):
         out = self.blockchain_status('{}')
+        self.assertIn("Pruning: unavailable (configured: 256 MiB target)", out)
         self.assertIn("Pruned (RPC mode): unavailable", out)
         self.assertIn("Block height: unavailable", out)
 
@@ -86,12 +90,14 @@ class StatusTests(unittest.TestCase):
             with self.subTest(response=response, ok=ok):
                 out = self.blockchain_status(response, rpc_ok=ok)
                 self.assertIn("Blockchain: RPC unavailable or invalid response", out)
+                self.assertIn("Pruning: unavailable (configured: 256 MiB target; RPC unavailable)", out)
                 self.assertIn("Configured prune target (global): 256 MiB", out)
 
     def test_invalid_field_types_are_unavailable(self):
         out = self.blockchain_status('{"blocks":"wrong","pruned":true,"pruneheight":-1}')
         self.assertIn("Block height: unavailable", out)
         self.assertIn("Prune height: unavailable", out)
+        self.assertIn("Pruning: enabled (configured: 256 MiB target; prune height: unavailable)", out)
 
     def test_configuration_modes_and_comments(self):
         for config, expected in [
