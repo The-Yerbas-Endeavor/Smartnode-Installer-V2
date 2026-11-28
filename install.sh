@@ -964,6 +964,18 @@ configure_smartnode_pruning() {
     info "At first startup, Core MUST finish verified historical evidence migration before pruning; do not interrupt or delete block files."
 }
 
+release_is_older_than_installed() {
+    local installed_version latest_version
+    # Restrict comparisons to known four-part Yerbas versions. Unknown labels
+    # are not silently reinterpreted as version numbers.
+    [[ "${INSTALLED_RELEASE:-}" =~ ^v?([0-9]+[.][0-9]+[.][0-9]+[.][0-9]+)($|[-+]) ]] || return 1
+    installed_version="${BASH_REMATCH[1]}"
+    [[ "${RELEASE_TAG:-}" =~ ^v?([0-9]+[.][0-9]+[.][0-9]+[.][0-9]+)($|[-+]) ]] || return 1
+    latest_version="${BASH_REMATCH[1]}"
+    [[ "$installed_version" != "$latest_version" ]] || return 1
+    [[ "$(printf '%s\n' "$latest_version" "$installed_version" | LC_ALL=C sort -V | head -n1)" == "$latest_version" ]]
+}
+
 maintenance_menu() {
     local choice
     ADDITIONAL_USERS=0
@@ -977,7 +989,9 @@ maintenance_menu() {
     echo "Latest compatible release: $RELEASE_TAG"
     echo
     echo "  1) Add Smartnode"
-    if [[ -n "$INSTALLED_RELEASE" && "$INSTALLED_RELEASE" == "$RELEASE_TAG" ]]; then
+    if release_is_older_than_installed; then
+        echo "  2) Update Smartnodes (blocked: stable release older than installed)"
+    elif [[ -n "$INSTALLED_RELEASE" && "$INSTALLED_RELEASE" == "$RELEASE_TAG" ]]; then
         echo "  2) Update Smartnodes (already current)"
     else
         echo "  2) Update Smartnodes"
@@ -995,6 +1009,10 @@ maintenance_menu() {
         case "$choice" in
             1) ADDITIONAL_USERS=1; break ;;
             2)
+                if release_is_older_than_installed; then
+                    warn "Refusing to downgrade installed $INSTALLED_RELEASE to older stable $RELEASE_TAG."
+                    continue
+                fi
                 if [[ -n "$INSTALLED_RELEASE" && "$INSTALLED_RELEASE" == "$RELEASE_TAG" ]]; then
                     info "Yerbas wallet is already current ($RELEASE_TAG). No update needed."
                     continue
@@ -1614,6 +1632,12 @@ main() {
 
     if (( EXISTING_INSTALL == 1 )); then
         installed_release="$INSTALLED_RELEASE"
+        if release_is_older_than_installed; then
+            warn "Installed Yerbas $INSTALLED_RELEASE is newer than published stable $RELEASE_TAG."
+            warn "Refusing to replace shared binaries or start an add-node operation with an older release."
+            info "No existing Smartnodes were modified."
+            return 0
+        fi
         if [[ -n "$installed_release" && "$installed_release" != "$RELEASE_TAG" ]]; then RELEASE_CHANGED=1; info "Yerbas release change detected: $installed_release -> $RELEASE_TAG."; info "Existing Smartnodes will be rolling-restarted one at a time."; else RELEASE_CHANGED=0; info "Yerbas release is unchanged at $RELEASE_TAG."; info "Existing Smartnodes will remain running."; fi
     fi
 
