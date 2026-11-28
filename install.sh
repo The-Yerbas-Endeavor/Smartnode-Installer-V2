@@ -1118,11 +1118,11 @@ maintenance_menu() {
     echo "  6) Remove Smartnode"
     echo "  7) Increase swap"
     echo "  8) Configure blockchain pruning (experimental)"
-    echo "  9) Select staged Core release for one Smartnode"
-    echo "  10) Exit (no changes)"
+    echo "  9) Exit (no changes)"
+    echo "  10) Select staged Core release for one Smartnode"
     while true; do
-        read -r -p "Selection [10]: " choice
-        choice="${choice:-10}"
+        read -r -p "Selection [9]: " choice
+        choice="${choice:-9}"
         case "$choice" in
             1) ADDITIONAL_USERS=1; break ;;
             2)
@@ -1143,8 +1143,8 @@ maintenance_menu() {
             6) remove_existing_smartnode ;;
             7) increase_swap ;;
             8) configure_smartnode_pruning ;;
-            9) configure_smartnode_core_release ;;
-            10) info "No maintenance changes selected."; break ;;
+            9) info "No maintenance changes selected."; break ;;
+            10) configure_smartnode_core_release ;;
             *) echo "Enter 1 through 10." ;;
         esac
     done
