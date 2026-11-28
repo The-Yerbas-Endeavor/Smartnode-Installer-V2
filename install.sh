@@ -481,7 +481,7 @@ network_provisioning() {
 }
 
 display_smartnode_statuses() {
-    local user home service enabled rpc_output state configured_prune
+    local user home service enabled rpc_output state configured_prune configured_label
     local -a users=("${@}")
     if (( $# == 0 )); then users=("${EXISTING_USERS[@]}"); fi
     echo
@@ -503,6 +503,7 @@ display_smartnode_statuses() {
         home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
         if [[ -z "$home" || ! -f "$home/$CONF_DIR_NAME/$CONF_FILE" ]]; then
             echo "  Smartnode: configuration unavailable"
+            echo "  Pruning: unavailable (configuration missing)"
             continue
         fi
         # Show the file setting separately from the running daemon: edits may
@@ -513,20 +514,24 @@ display_smartnode_statuses() {
                 sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*#.*/, "")
                 sub(/[[:space:]]*$/, ""); print
             }' "$home/$CONF_DIR_NAME/$CONF_FILE")"
+        configured_label="unavailable"
         case "$configured_prune" in
-            "") echo "  Configured prune (global): not set" ;;
-            0) echo "  Configured prune (global): disabled" ;;
-            1) echo "  Configured prune (global): manual" ;;
+            "") configured_label="not set"; echo "  Configured prune (global): not set" ;;
+            0) configured_label="disabled"; echo "  Configured prune (global): disabled" ;;
+            1) configured_label="manual"; echo "  Configured prune (global): manual" ;;
             *)
                 if [[ "$configured_prune" =~ ^[1-9][0-9]{0,7}$ ]]; then
+                    configured_label="$configured_prune MiB target"
                     printf '  Configured prune target (global): %s MiB\n' "$configured_prune"
                 else
+                    configured_label="invalid or duplicated"
                     echo "  Configured prune (global): invalid or duplicated"
                 fi
                 ;;
         esac
         if [[ ! -x "$CURRENT_LINK/$CLI" && ! -x /usr/local/bin/$CLI ]]; then
             echo "  Smartnode: Yerbas CLI unavailable"
+            printf '  Pruning: unavailable (configured: %s)\n' "$configured_label"
             continue
         fi
         # Read-only RPC calls; bounded so one unresponsive node cannot block the menu.
@@ -541,14 +546,17 @@ display_smartnode_statuses() {
         # pruning MODE, not proof that files have already been deleted.
         if rpc_output="$(timeout 12 sudo -n -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" getblockchaininfo 2>/dev/null)" &&
             jq -e 'type == "object"' >/dev/null 2>&1 <<<"$rpc_output"; then
-            jq -r '
+            jq -r --arg configured "$configured_label" '
                 def height: if type == "number" and . >= 0 and floor == . then tostring else "unavailable" end;
                 "  Block height: \(.blocks | height)",
+                "  Pruning: \(if .pruned == true then "enabled" elif .pruned == false then "disabled" else "unavailable" end) (configured: \($configured)\(if .pruned == true then "; prune height: \(.pruneheight | height)" else "" end))",
                 "  Pruned (RPC mode): \(if .pruned == true then "Yes" elif .pruned == false then "No" else "unavailable" end)",
                 "  Prune height: \(if .pruned == true then (.pruneheight | height) elif .pruned == false then "not applicable" else "unavailable" end)",
                 "  Initial block download: \(if .initialblockdownload == true then "Yes" elif .initialblockdownload == false then "No" else "unavailable" end)"
             ' <<<"$rpc_output"
         else
+            echo "  Block height: unavailable"
+            printf '  Pruning: unavailable (configured: %s; RPC unavailable)\n' "$configured_label"
             echo "  Blockchain: RPC unavailable or invalid response"
         fi
     done
