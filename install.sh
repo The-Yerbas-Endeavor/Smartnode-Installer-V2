@@ -1022,6 +1022,8 @@ configure_smartnode_core_release() {
     fi
     for target in "$RELEASES_DIR"/*; do
         [[ -d "$target" && ! -L "$target" && -x "$target/yerbasd" && -x "$target/yerbas-cli" ]] || continue
+        # Reject whitespace, control characters, and separators in systemd paths.
+        [[ "${target##*/}" =~ ^[a-zA-Z0-9._-]+$ ]] || continue
         [[ "$(readlink -f -- "$target")" == "$target" ]] || continue
         [[ "$(stat -c %u -- "$target")" == 0 ]] || continue
         node_core_version "$target/yerbasd" >/dev/null || continue
@@ -1039,6 +1041,7 @@ configure_smartnode_core_release() {
         warn "Invalid release selection."; return 0
     fi
     target="${releases[choice-1]}"
+    [[ "${target##*/}" =~ ^[a-zA-Z0-9._-]+$ ]] || { warn "Unsafe release name."; return 0; }
     version="$(node_core_version "$target/yerbasd")" || return 0
     if [[ "$version" != "$current_version" &&
           "$(printf '%s\n' "$version" "$current_version" | LC_ALL=C sort -V | head -n1)" == "$version" ]]; then
@@ -1069,9 +1072,18 @@ configure_smartnode_core_release() {
         printf 'ExecStop=\nExecStop=%s/yerbas-cli -datadir=/home/%s/.yerbascore stop\n' "$target" "$user"
     } > "$tmp"
     chmod 0644 "$tmp"
-    if [[ -e "$dropin" || -L "$dropin" ]]; then rm -f "$tmp"; warn "Override appeared; refusing."; return 0; fi
-    mv -- "$tmp" "$dropin"
-    systemctl daemon-reload
+    # Hard-link creation is atomic and fails if the destination already exists.
+    # Unlike mv, it cannot replace another admin's override in a race.
+    if ! ln -- "$tmp" "$dropin"; then
+        rm -f -- "$tmp"
+        warn "Instance override already exists or cannot be created; refusing."
+        return 0
+    fi
+    rm -f -- "$tmp"
+    if ! systemctl daemon-reload; then
+        warn "systemd reload failed; $user remains stopped for inspection."
+        return 1
+    fi
     if [[ "$(node_core_binary "$user" 2>/dev/null || true)" != "$target/yerbasd" ]]; then
         warn "Effective executable mismatch; $user remains stopped."; return 1
     fi
