@@ -23,7 +23,10 @@ printf 'rpcpassword=other\nprune=0\n' > "$TEST_DIR/bob/.yerbascore/yerbas.conf"
 getent() { printf '%s:x:1000:1000::%s/%s:/bin/bash\n' "$2" "$TEST_DIR" "$2"; }
 systemctl() { if [[ "$1" == is-active ]]; then echo inactive; else return 1; fi; }
 chown() { return 0; }
-# Mock the installed 256-capable build for safe, unprivileged tests.
+# Mock per-instance service binaries. Global INSTALLED_RELEASE remains a shared
+# release label for other installer paths, but must not authorize pruning.
+node_core_binary() { printf '/opt/yerbas/releases/test-%s/yerbasd\n' "$1"; }
+node_core_version() { printf '%s\n' "${NODE_CORE_VERSION:-$INSTALLED_RELEASE}"; }
 core_prune_minimum_mib() { printf '256\n'; }
 '''
             result = subprocess.run(
@@ -40,7 +43,35 @@ INSTALLED_RELEASE=4.0.1.4
 configure_smartnode_pruning <<< '1'
 grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
 ''')
-        self.assertIn('not eligible', result.stdout)
+        self.assertIn('requires a verified 4.0.1.6 build', result.stdout)
+
+    def test_newer_instance_is_eligible_with_older_shared_release(self):
+        result = self.run_case(r'''
+INSTALLED_RELEASE=4.0.1.4
+NODE_CORE_VERSION=4.0.1.6
+prompt_yes_no() { return 0; }
+configure_smartnode_pruning <<< "$(printf '1\\n256')"
+grep -qx 'prune=256' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+grep -qx 'prune=0' "$TEST_DIR/bob/.yerbascore/yerbas.conf"
+''')
+        self.assertIn('Configured txindex=0 and prune=256', result.stdout)
+
+    def test_older_instance_rejected_with_newer_shared_release(self):
+        result = self.run_case(r'''
+INSTALLED_RELEASE=4.0.1.6
+NODE_CORE_VERSION=4.0.1.4
+configure_smartnode_pruning <<< '1'
+grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+''')
+        self.assertIn('requires a verified 4.0.1.6 build', result.stdout)
+
+    def test_missing_instance_binary_fails_closed(self):
+        result = self.run_case(r'''
+node_core_binary() { return 1; }
+configure_smartnode_pruning <<< '1'
+grep -qx 'prune=0' "$TEST_DIR/alice/.yerbascore/yerbas.conf"
+''')
+        self.assertIn("Cannot verify alice service's Core binary", result.stdout)
 
     def test_existing_history_requires_explicit_confirmation(self):
         result = self.run_case(r'''
