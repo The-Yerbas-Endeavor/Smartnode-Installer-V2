@@ -124,6 +124,10 @@ Menu option 4 reports the global `prune` configuration separately from the runni
 
 Core's `pruned=true` reports pruning mode; it does not prove old files have already been deleted. The configured MiB target applies only to block/undo storage. Initial-block-download state and Smartnode readiness do not establish DKG participation or ChainLock signing. This change applies to the installer menu; the separate manager and boot/login reports retain their existing fields.
 
+### Downgrade safety for experimental 4.0.1.6 nodes
+
+GitHub may continue to list `v4.0.1.4` as the latest stable release while a server already runs a newer, commit-suffixed `v4.0.1.6` pruning pilot. The installer now recognizes standard four-component versions and prevents a selected wallet update or add-node flow from silently replacing the shared newer binary with an older release. The server remains unchanged in this case. Use a separately validated, properly tagged stable release before attempting a managed update or adding another node.
+
 ## Experimental blockchain pruning and 4.0.1.4 migration
 
 The installer offers **8) Configure blockchain pruning** for one selected Smartnode and displays its existing `prune` setting. This option can **enable pruning or edit an existing pruning target**. For an existing pruned node, type `RESIZE USERNAME` to authorize the change; for a previously archival node, type `MIGRATE USERNAME`. The previous configuration is backed up, and only the selected node may be stopped with confirmation. The installed shared wallet must be **4.0.1.6**; the menu does **not** install or switch wallet binaries.
