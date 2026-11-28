@@ -77,26 +77,7 @@ grep -qx custom "$SYSTEMD_INSTANCE_DIR/yerbasd@ip1.service.d/override.conf"
 mkdir -p "$RELEASES_DIR/unsafe name"
 touch "$RELEASES_DIR/unsafe name/yerbasd" "$RELEASES_DIR/unsafe name/yerbas-cli"
 chmod +x "$RELEASES_DIR/unsafe name/"*
-configure_smartnode_core_release <<< 
-        out = self.run_case(r'''
-configure_smartnode_core_release <<< $'1\n1\nNO'
-! test -e "$SYSTEMD_INSTANCE_DIR/yerbasd@ip1.service.d/override.conf"
-! test -f "$TEST_DIR/stopped"
-''')
-        self.assertIn("Cancelled", out)
-
-    def test_downgrade_refused_without_stopping(self):
-        out = self.run_case(r'''
-node_core_binary() { echo "$RELEASES_DIR/candidate/yerbasd"; }
-configure_smartnode_core_release <<< $'1\n2'
-! test -f "$TEST_DIR/stopped"
-''')
-        self.assertIn("Downgrade refused", out)
-
-
-if __name__ == "__main__":
-    unittest.main()
-1\\n'
+configure_smartnode_core_release <<< $'1\n'
 ! test -f "$TEST_DIR/stopped"
 ''')
         self.assertNotIn("unsafe name", out)
