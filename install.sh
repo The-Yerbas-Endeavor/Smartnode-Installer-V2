@@ -481,7 +481,7 @@ network_provisioning() {
 }
 
 display_smartnode_statuses() {
-    local user home service enabled rpc_output state height
+    local user home service enabled rpc_output state configured_prune
     local -a users=("${@}")
     if (( $# == 0 )); then users=("${EXISTING_USERS[@]}"); fi
     echo
@@ -505,6 +505,26 @@ display_smartnode_statuses() {
             echo "  Smartnode: configuration unavailable"
             continue
         fi
+        # Show the file setting separately from the running daemon: edits may
+        # not have taken effect yet, and CLI/network overrides can differ.
+        configured_prune="$(awk '
+            /^[[:space:]]*\[/ { exit }
+            /^[[:space:]]*prune[[:space:]]*=/ {
+                sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*#.*/, "")
+                sub(/[[:space:]]*$/, ""); print
+            }' "$home/$CONF_DIR_NAME/$CONF_FILE")"
+        case "$configured_prune" in
+            "") echo "  Configured prune (global): not set" ;;
+            0) echo "  Configured prune (global): disabled" ;;
+            1) echo "  Configured prune (global): manual" ;;
+            *)
+                if [[ "$configured_prune" =~ ^[1-9][0-9]{0,7}$ ]]; then
+                    printf '  Configured prune target (global): %s MiB\n' "$configured_prune"
+                else
+                    echo "  Configured prune (global): invalid or duplicated"
+                fi
+                ;;
+        esac
         if [[ ! -x "$CURRENT_LINK/$CLI" && ! -x /usr/local/bin/$CLI ]]; then
             echo "  Smartnode: Yerbas CLI unavailable"
             continue
@@ -517,14 +537,19 @@ display_smartnode_statuses() {
             echo "  Smartnode: RPC unavailable (stopped, loading, or not responding)"
         fi
 
-        if height="$(timeout 12 sudo -n -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" getblockcount 2>/dev/null)"; then
-            if [[ "$height" =~ ^[0-9]+$ ]]; then
-                printf '  Block height: %s\n' "$height"
-            else
-                echo "  Block height: unavailable"
-            fi
+        # A single RPC supplies a consistent snapshot. `pruned` is Core's
+        # pruning MODE, not proof that files have already been deleted.
+        if rpc_output="$(timeout 12 sudo -n -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" getblockchaininfo 2>/dev/null)" &&
+            jq -e 'type == "object"' >/dev/null 2>&1 <<<"$rpc_output"; then
+            jq -r '
+                def height: if type == "number" and . >= 0 and floor == . then tostring else "unavailable" end;
+                "  Block height: \(.blocks | height)",
+                "  Pruned (RPC mode): \(if .pruned == true then "Yes" elif .pruned == false then "No" else "unavailable" end)",
+                "  Prune height: \(if .pruned == true then (.pruneheight | height) elif .pruned == false then "not applicable" else "unavailable" end)",
+                "  Initial block download: \(if .initialblockdownload == true then "Yes" elif .initialblockdownload == false then "No" else "unavailable" end)"
+            ' <<<"$rpc_output"
         else
-            echo "  Block height: unavailable"
+            echo "  Blockchain: RPC unavailable or invalid response"
         fi
     done
     echo
