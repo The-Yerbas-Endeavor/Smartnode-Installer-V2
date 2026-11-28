@@ -31,6 +31,85 @@ node_home() {
     getent passwd "$1" | cut -d: -f6
 }
 
+
+service_core_version() {
+    local out path ver
+    out="$(systemctl show "yerbasd@$1.service" -p ExecStart --value 2>/dev/null)" || return 1
+    [[ "$out" =~ path=([^;\ \}]+) ]] || return 1
+    path="\${BASH_REMATCH[1]}"
+    [[ -x "$path" ]] || return 1
+    ver="$(timeout 4 "$path" --version 2>/dev/null | head -n1)" || return 1
+    [[ "$ver" =~ v([0-9]+[.][0-9]+[.][0-9]+[.][0-9]+)([-+][a-zA-Z0-9._-]+)? ]] || return 1
+    printf '%s\n' "\${BASH_REMATCH[1]}\${BASH_REMATCH[2]:-}"
+}
+
+configured_prune() {
+    local value
+    [[ -f "$1" ]] || { printf unavailable; return; }
+    value="$(awk '/^[[:space:]]*\[/ { exit } /^[[:space:]]*prune[[:space:]]*=/ {
+      sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*#.*/, ""); sub(/[[:space:]]*$/, ""); print
+    }' "$1")"
+    case "$value" in
+      "") printf 'not set' ;;
+      0) printf disabled ;;
+      1) printf manual ;;
+      *) if [[ "$value" =~ ^[1-9][0-9]{0,7}$ ]]; then printf '%s MiB target' "$value"
+         else printf 'invalid or duplicated'; fi ;;
+    esac
+}
+
+status_rpc() {
+    local user="$1" home="$2"
+    shift 2
+    timeout 8 sudo -n -u "$user" "$CLI" -datadir="$home/$CONF_DIR_NAME" "$@" 2>/dev/null
+}
+
+print_node_status() {
+    local u="$1" home conf version setting response state
+    printf '%-20s service=%-10s enabled=%s\n' "$u" \
+      "$(systemctl is-active "yerbasd@$u" 2>/dev/null || echo unknown)" \
+      "$(systemctl is-enabled "yerbasd@$u" 2>/dev/null || echo unknown)"
+    version="$(service_core_version "$u" || true)"
+    printf '  Core version: %s\n' "\${version:-unavailable}"
+    home="$(node_home "$u" 2>/dev/null || true)"
+    conf="$home/$CONF_DIR_NAME/yerbas.conf"
+    if [[ -z "$home" || ! -f "$conf" ]]; then
+        echo "  Smartnode: configuration unavailable"
+        echo "  Block height: unavailable"
+        echo "  Pruning: unavailable (configuration missing)"
+        echo "  IBD: unavailable"
+        return 0
+    fi
+    setting="$(configured_prune "$conf")"
+    if [[ ! -x "$CLI" ]] || ! command -v jq >/dev/null 2>&1; then
+        echo "  Smartnode: CLI or jq unavailable"
+        echo "  Block height: unavailable"
+        printf '  Pruning: unavailable (configured: %s)\n' "$setting"
+        echo "  IBD: unavailable"
+        return 0
+    fi
+    if response="$(status_rpc "$u" "$home" smartnode status)" &&
+       jq -e 'type == "object"' >/dev/null 2>&1 <<<"$response"; then
+        state="$(jq -r '(.state // .status // .result.state // "unavailable") | tostring' <<<"$response")"
+        printf '  Smartnode: %s\n' "$state"
+    else
+        echo "  Smartnode: RPC unavailable"
+    fi
+    if response="$(status_rpc "$u" "$home" getblockchaininfo)" &&
+       jq -e 'type == "object"' >/dev/null 2>&1 <<<"$response"; then
+        jq -r --arg configured "$setting" '
+          def height: if type == "number" and . >= 0 and floor == . then tostring else "unavailable" end;
+          "  Block height: \(.blocks | height)",
+          "  Pruning: \(if .pruned == true then "enabled" elif .pruned == false then "disabled" else "unavailable" end) (configured: \($configured)\(if .pruned == true then "; prune height: \(.pruneheight | height)" else "" end))",
+          "  IBD: \(if .initialblockdownload == true then "Yes" elif .initialblockdownload == false then "No" else "unavailable" end)"
+        ' <<<"$response"
+    else
+        echo "  Block height: unavailable"
+        printf '  Pruning: unavailable (configured: %s; RPC unavailable)\n' "$setting"
+        echo "  IBD: unavailable"
+    fi
+}
+
 cmd="${1:-}"
 user="${2:-}"
 
@@ -38,10 +117,7 @@ case "$cmd" in
     status)
         while read -r u; do
             [[ -n "$u" ]] || continue
-            printf '%-20s service=%-10s enabled=%s\n' \
-                "$u" \
-                "$(systemctl is-active "yerbasd@$u" 2>/dev/null || true)" \
-                "$(systemctl is-enabled "yerbasd@$u" 2>/dev/null || true)"
+            print_node_status "$u"
         done < <(users)
         ;;
     start|stop|restart)
