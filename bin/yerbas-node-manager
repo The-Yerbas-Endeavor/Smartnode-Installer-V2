@@ -36,11 +36,11 @@ service_core_version() {
     local out path ver
     out="$(systemctl show "yerbasd@$1.service" -p ExecStart --value 2>/dev/null)" || return 1
     [[ "$out" =~ path=([^;\ \}]+) ]] || return 1
-    path="\${BASH_REMATCH[1]}"
+    path="${BASH_REMATCH[1]}"
     [[ -x "$path" ]] || return 1
     ver="$(timeout 4 "$path" --version 2>/dev/null | head -n1)" || return 1
     [[ "$ver" =~ v([0-9]+[.][0-9]+[.][0-9]+[.][0-9]+)([-+][a-zA-Z0-9._-]+)? ]] || return 1
-    printf '%s\n' "\${BASH_REMATCH[1]}\${BASH_REMATCH[2]:-}"
+    printf '%s\n' "${BASH_REMATCH[1]}${BASH_REMATCH[2]:-}"
 }
 
 configured_prune() {
@@ -70,7 +70,7 @@ print_node_status() {
       "$(systemctl is-active "yerbasd@$u" 2>/dev/null || echo unknown)" \
       "$(systemctl is-enabled "yerbasd@$u" 2>/dev/null || echo unknown)"
     version="$(service_core_version "$u" || true)"
-    printf '  Core version: %s\n' "\${version:-unavailable}"
+    printf '  Core version: %s\n' "${version:-unavailable}"
     home="$(node_home "$u" 2>/dev/null || true)"
     conf="$home/$CONF_DIR_NAME/yerbas.conf"
     if [[ -z "$home" || ! -f "$conf" ]]; then
