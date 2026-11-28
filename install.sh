@@ -19,6 +19,7 @@ CACHE_DIR="/var/cache/yerbas"
 STATE_DIR="/var/lib/yerbas-installer"
 USERS_FILE="$STATE_DIR/users"
 SERVICE_TEMPLATE="/etc/systemd/system/yerbasd@.service"
+SYSTEMD_INSTANCE_DIR="/etc/systemd/system"
 MANAGER="/usr/local/sbin/yerbas-node-manager"
 LOG_FILE="/var/log/yerbas-installer-v2.log"
 DEFAULT_P2P_PORT=15420
@@ -1013,7 +1014,7 @@ configure_smartnode_core_release() {
     user="${EXISTING_USERS[choice-1]}"
     current_binary="$(node_core_binary "$user")" || { warn "Cannot verify current binary."; return 0; }
     current_version="$(node_core_version "$current_binary")" || { warn "Cannot verify Core version."; return 0; }
-    dropdir="/etc/systemd/system/yerbasd@$user.service.d"
+    dropdir="$SYSTEMD_INSTANCE_DIR/yerbasd@$user.service.d"
     dropin="$dropdir/override.conf"
     if [[ -e "$dropin" || -L "$dropin" ]]; then
         warn "Existing override.conf for $user is preserved; refusing to overwrite."
